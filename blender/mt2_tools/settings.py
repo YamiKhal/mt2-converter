@@ -1,8 +1,12 @@
 import bpy
 
 from . import game
+from .anim_objects import NAME_KEY, PLAYBACK_KEY, assign, owned_actions
+from .mt2model.animations import PLAYBACK_TYPES
+from .mt2model.dungeons import SHAPES
 from .mt2model.assets import ASSET_TYPES, MODULAR_SLOTS, PLACEABLE_SCENERY_TYPES, TAG_KINDS, TAG_PLACES
-from .mt2model.variants import building_kinds
+from .mt2model.variants import building_kinds, gizmo_dirs
+from .palette import show_palette
 
 ROLES = (
     ("NONE", "Model", "Exported as part of the model"),
@@ -10,6 +14,10 @@ ROLES = (
     ("OBSTRUCTION", "Obstruction shape", "Its faces become the footprint polygons in <name>_obs.vrt"),
     ("COLLISION", "Collision", "Dungeon tiles only: the physics mesh"),
     ("NAVMESH", "Navmesh", "Dungeon tiles only: the walkable surface"),
+    ("PAD", "NPC pad", "A flat 4-corner area where NPCs stand; its entrance lines are its children"),
+    ("ENTRANCE", "Entrance", "A line NPCs walk along, from outside the building to its pad"),
+    ("SOCKET", "Prop socket", "Dungeon tiles: a spot where the dungeon places a prop whose tags match"),
+    ("BONE", "Bone", "A skeleton bone of a costume; parts parented to it follow it"),
     ("REFERENCE", "Reference", "A vanilla model for scale; never exported"),
     ("PREVIEW", "Preview", "A helper drawn by the add-on; never exported"),
 )
@@ -21,6 +29,40 @@ def _items(values) -> list[tuple[str, str, str]]:
 
 _building_items: list = []
 _building_source: list = [None]
+
+
+_gizmo_items: list = []
+_animation_items: list = []
+
+
+def gizmo_dir_items(self=None, context=None):
+    data = game.game_data()
+    if not _gizmo_items:
+        dirs = gizmo_dirs(data) if data is not None else []
+        _gizmo_items.extend((d, d.rsplit("/", 1)[-1].capitalize(), d) for d in dirs)
+
+    return _gizmo_items or [("gizmo/container", "Container", "gizmo/container")]
+
+
+def animation_items(self, context):
+    _animation_items.clear()
+    owner = self.id_data
+    _animation_items.extend((a.name, a.get(NAME_KEY, a.name), "") for a in owned_actions(owner))
+
+    return _animation_items or [("", "No animations", "")]
+
+
+def _animation_changed(self, context):
+    action = bpy.data.actions.get(self.animation)
+    if action is not None:
+        assign(self.id_data, action)
+        self.playback = action.get(PLAYBACK_KEY, "Once")
+
+
+def _playback_changed(self, context):
+    action = bpy.data.actions.get(self.animation)
+    if action is not None:
+        action[PLAYBACK_KEY] = self.playback
 
 
 def building_dir_items(self=None, context=None):
@@ -55,8 +97,21 @@ class MT2_MaterialName(bpy.types.PropertyGroup):
     pass
 
 
-class MT2_RecentColor(bpy.types.PropertyGroup):
-    color: bpy.props.FloatVectorProperty(name="Color", subtype="COLOR_GAMMA", size=4, min=0.0, max=1.0)
+def _art_pack_changed(self, context):
+    from . import pipeline
+
+    pipeline.write_art_pack(game.project_dir())
+
+
+def _palette_changed(self, context):
+    owner = self.id_data
+    if isinstance(owner, bpy.types.Object) and owner.mt2.asset == "costume":
+        show_palette(owner)
+
+
+class MT2_Color(bpy.types.PropertyGroup):
+    color: bpy.props.FloatVectorProperty(name="Color", subtype="COLOR_GAMMA", size=4, min=0.0, max=1.0,
+                                         update=_palette_changed)
 
 
 class MT2_SceneSettings(bpy.types.PropertyGroup):
@@ -72,7 +127,7 @@ class MT2_SceneSettings(bpy.types.PropertyGroup):
     paint_color: bpy.props.FloatVectorProperty(
         name="Color", subtype="COLOR_GAMMA", size=4, min=0.0, max=1.0, default=(0.8, 0.8, 0.8, 1.0),
     )
-    recent_colors: bpy.props.CollectionProperty(type=MT2_RecentColor)
+    recent_colors: bpy.props.CollectionProperty(type=MT2_Color)
     select_connected: bpy.props.BoolProperty(
         name="Connected only", default=True,
         description="Only select faces touching the selection through faces of the same color",
@@ -83,6 +138,41 @@ class MT2_SceneSettings(bpy.types.PropertyGroup):
     )
     shade_top: bpy.props.FloatProperty(name="Top", min=0.0, max=1.0, default=0.3)
     shade_bottom: bpy.props.FloatProperty(name="Bottom", min=0.0, max=1.0, default=0.55)
+    show_notes: bpy.props.BoolProperty(name="Notes", description="Show Check's notes, not only its problems")
+    show_guides: bpy.props.BoolProperty(
+        name="Guides", default=True,
+        description="Draw the 3 x 3 x 3 cell of modular pieces and the length of walls and bridges in the viewport",
+    )
+    art_pack: bpy.props.BoolProperty(
+        name="Art pack", update=_art_pack_changed,
+        description="Lock what this mod exports behind an art pack players buy in the Art Store. "
+                    "Each export updates it",
+    )
+    art_pack_name: bpy.props.StringProperty(
+        name="Name", description="The art pack's name in the Art Store", update=_art_pack_changed,
+    )
+    art_pack_description: bpy.props.StringProperty(
+        name="Description", description="The text under the art pack's name in the Art Store",
+        update=_art_pack_changed,
+    )
+    art_pack_cost: bpy.props.IntProperty(
+        name="Cost", min=0, default=2000, update=_art_pack_changed,
+        description="0 leaves the game's default",
+    )
+    art_pack_costumes: bpy.props.BoolProperty(
+        name="Costumes", update=_art_pack_changed,
+        description="Lock the mod's costumes behind the art pack too; otherwise they're available from the start",
+    )
+    weapon_packs: bpy.props.BoolProperty(
+        name="Weapon packs", update=_art_pack_changed,
+        description="Sell each new weapon category as its own weapon pack in the Art Store, like the game's Bows or Guns",
+    )
+    weapon_pack_cost: bpy.props.IntProperty(
+        name="Cost", min=0, default=2000, update=_art_pack_changed, description="0 leaves the game's default",
+    )
+    art_pack_exotic: bpy.props.BoolProperty(
+        name="Exotic", description="Listed as an exotic art pack", update=_art_pack_changed,
+    )
     findings: bpy.props.CollectionProperty(type=MT2_Finding)
     findings_root: bpy.props.PointerProperty(type=bpy.types.Object, description="The asset the findings belong to")
 
@@ -121,10 +211,42 @@ class MT2_ObjectSettings(bpy.types.PropertyGroup):
     wall_piece: bpy.props.EnumProperty(
         name="Piece", items=_items(("wall", "turret")), default="wall", update=_forget_findings,
     )
+    gizmo_dir: bpy.props.EnumProperty(name="Kind", items=gizmo_dir_items, update=_forget_findings)
+    animation: bpy.props.EnumProperty(
+        name="Animation", items=animation_items, update=_animation_changed,
+        description="The animation shown on this model; keyframes you add go into it",
+    )
+    playback: bpy.props.EnumProperty(
+        name="Playback", items=[(p, p, "") for p in PLAYBACK_TYPES], update=_playback_changed,
+        description="How the game plays the animation: once, once and hold the last frame, loop, or back and forth",
+    )
+    bridge_piece: bpy.props.EnumProperty(
+        name="Piece", items=(("bridge", "Bridge", ""), ("ramp", "Ramp", "")), default="bridge",
+        update=_forget_findings,
+    )
+    dungeon_theme: bpy.props.StringProperty(name="Theme", update=_forget_findings)
+    tile_kind: bpy.props.EnumProperty(
+        name="Piece", items=(("walls", "Wall", ""), ("ceilings", "Ceiling", "")), default="walls",
+        update=_forget_findings,
+    )
+    shape: bpy.props.EnumProperty(
+        name="Shape", items=[(s, s.replace("_", " "), "") for s in SHAPES], default="N", update=_forget_findings,
+        description="Which sides are open: N, E, S, W and the corners between them; O is a closed room piece",
+    )
+    socket_tags: bpy.props.StringProperty(
+        name="Tags", description="Space-separated, such as: floor prop small. The dungeon adds its theme's name",
+    )
+    vehicle_kind: bpy.props.EnumProperty(
+        name="Travels by", items=(("air", "Air", "An airship"), ("water", "Water", "A ship")), default="air",
+        update=_forget_findings,
+    )
     building_dir: bpy.props.EnumProperty(name="Building type", items=building_dir_items, update=_forget_findings)
+    description: bpy.props.StringProperty(
+        name="Description", update=_forget_findings, description="The text players see when hovering this vehicle",
+    )
     display_name: bpy.props.StringProperty(
         name="Display name", update=_forget_findings,
-        description="Shown in game: the name of a building variant, or of a new weapon category",
+        description="The name players see for this building, vehicle, costume or new weapon category",
     )
     raw_path: bpy.props.StringProperty(
         name="Game path", description="Relative path, e.g. scenery/stone/my_rock.vmb", update=_forget_findings,
@@ -133,6 +255,7 @@ class MT2_ObjectSettings(bpy.types.PropertyGroup):
     source_path: bpy.props.StringProperty(name="Imported from")
     source_variant: bpy.props.StringProperty(name="Variant template")
     exported_path: bpy.props.StringProperty(name="Exported as")
+    palette: bpy.props.CollectionProperty(type=MT2_Color, description="The costume's 8 default colors")
 
 
 class MT2_MaterialSettings(bpy.types.PropertyGroup):
@@ -141,7 +264,7 @@ class MT2_MaterialSettings(bpy.types.PropertyGroup):
     )
 
 
-CLASSES = (MT2_Finding, MT2_MaterialName, MT2_RecentColor, MT2_SceneSettings, MT2_ObjectSettings, MT2_MaterialSettings)
+CLASSES = (MT2_Finding, MT2_MaterialName, MT2_Color, MT2_SceneSettings, MT2_ObjectSettings, MT2_MaterialSettings)
 
 
 def register_properties():

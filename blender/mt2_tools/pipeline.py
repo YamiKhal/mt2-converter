@@ -3,15 +3,26 @@ from dataclasses import dataclass, field
 import bpy
 
 from . import convert_out, game, project
-from .mt2model import model
+from .mt2model import model, records
+from .mt2model.artpacks import WEAPON_PACK_PREFIX, art_pack, is_empty, pack_content, weapon_pack, weapon_pack_path
 from .mt2model.assets import asset_type
 from .mt2model.axes import AXES_VERSION
 from .mt2model.costume import normalise
 from .mt2model.footprint import is_convex
+from .mt2model.pads import pad_problems
+from .anim_objects import export_animation, is_changed, owned_actions
+from .costume_objects import (ACTOR_KEY, TEMPLATE_KEY, costume_root, is_unchanged, moved_bones, parts_of,
+                              placement)
+from .mt2model.animations import write_animations
+from .mt2model.dungeons import write_sockets
+from .socket_objects import collect_sockets
+from .mt2model.costume_files import write_costume, write_defaults
+from .pad_objects import collect_pads, has_own_pads
 from .mt2model.i18n import set_strings, strings_path
 from .mt2model.naming import ExportTarget, model_path, prefixed, target_problems
 from .mt2model.obstruction import obs_file_name, write_obstruction
 from .mt2model.validate import Finding, has_errors, validate
+from .mt2model.vehicle_tool import TOOL_FILE, offer_vehicle
 from .mt2model.variants import building_kinds, derive_variant, display_name_key, variant_files
 
 
@@ -22,21 +33,28 @@ class Plan:
     built: convert_out.Built | None = None
     findings: list[Finding] = field(default_factory=list)
     texts: dict[str, str] = field(default_factory=dict)
+    parts: list["Plan"] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
-        return self.built is not None and not has_errors(self.findings)
+        ready = self.built is not None or (self.texts and self.root_obj.mt2.asset == "costume")
+
+        return bool(ready) and not has_errors(self.findings) and all(p.ok for p in self.parts)
 
 
 def target_for(root_obj: bpy.types.Object) -> ExportTarget:
     s = root_obj.mt2
+    mod_id = bpy.context.scene.mt2.mod_id
+    costume = costume_root(root_obj.parent) if s.asset == "costume_part" else None
+    costume_set = prefixed(mod_id, costume.mt2.name or costume.name) if costume else s.costume_set
 
     return ExportTarget(
-        asset=s.asset, name=s.name or root_obj.name, mod_id=bpy.context.scene.mt2.mod_id,
+        asset=s.asset, name=s.name or root_obj.name, mod_id=mod_id,
         scenery_type=s.scenery_type, weapon_category=s.weapon_category, item_level=s.item_level,
-        costume_set=s.costume_set, bone=s.bone, theme=s.theme, slot=s.slot, building_dir=s.building_dir,
+        costume_set=costume_set, bone=s.bone, theme=s.theme, slot=s.slot, building_dir=s.building_dir,
         wall_piece=s.wall_piece, tag_place=s.tag_place, tag_kind=s.tag_kind, tag_small=s.tag_small,
-        tag_extra=s.tag_extra.split(), raw_path=s.raw_path,
+        tag_extra=s.tag_extra.split(), raw_path=s.raw_path, vehicle_kind=s.vehicle_kind,
+        gizmo_dir=s.gizmo_dir, dungeon_theme=s.dungeon_theme, bridge_piece=s.bridge_piece, tile_kind=s.tile_kind, shape=s.shape,
     )
 
 
@@ -59,6 +77,9 @@ def plan(root_obj: bpy.types.Object) -> Plan:
     if other is not None:
         result.findings.append(Finding("error", f"'{other.name}' in this file also exports to {result.rel}; "
                                                 f"give one of them another name", other.name))
+    if target.asset == "costume":
+        _plan_costume(result, target)
+        return result
     asset = asset_type(target.asset)
     result.built = convert_out.build(root_obj, asset, game.catalog())
     result.findings += [Finding(level, message, object_name) for level, message, object_name in result.built.notes]
@@ -77,6 +98,12 @@ def plan(root_obj: bpy.types.Object) -> Plan:
         _plan_variant(result, target)
     if target.asset == "weapon":
         _plan_weapon_category(result, target)
+    if target.asset == "vehicle":
+        _plan_vehicle(result, target)
+    if target.asset == "gizmo":
+        _plan_gizmo(result, target)
+    if target.asset == "dungeon_tile":
+        _plan_dungeon_tile(result, target)
 
     return result
 
@@ -112,14 +139,80 @@ def _plan_variant(result: Plan, target: ExportTarget):
         result.findings.append(Finding("error", f"no .variant in {target.building_dir} to copy pads and entrances from"))
         return
     stem = prefixed(target.mod_id, target.name)
-    result.texts[f"{target.building_dir}/{stem}.variant"] = derive_variant(data.read(template), stem, result.rel)
-    result.findings.append(Finding("info", f"NPC pads and entrances copied from {template}; keep the same door and floor layout"))
+    pads = collect_pads(result.root_obj) if has_own_pads(result.root_obj) else None
+    result.texts[f"{target.building_dir}/{stem}.variant"] = derive_variant(data.read(template), stem, result.rel, pads)
+    if pads is not None:
+        result.findings += [Finding(level, message) for level, message in pad_problems(pads)]
     display = result.root_obj.mt2.display_name
     kind = next((k for k in building_kinds(data) if k.directory == target.building_dir), None)
     if display and kind:
         rel = strings_path(target.mod_id)
         existing = _read_project_text(rel)
         result.texts[rel] = set_strings(existing, {display_name_key(kind.key, stem): display})
+
+
+def _plan_dungeon_tile(result: Plan, target: ExportTarget):
+    result.texts[result.rel[: -len(".vmb")] + ".vrt"] = write_sockets(collect_sockets(result.root_obj))
+    materials = {f.material for node, _ in result.built.root.walk() for f in node.fragments}
+    for special in ("collision", "navmesh"):
+        if special not in materials:
+            result.findings.append(Finding("warning", f"no {special} piece; vanilla tiles all have one"))
+    if "_" in target.dungeon_theme:
+        result.findings.append(Finding("warning", f"dungeons place props by their theme's name, and prop file names split "
+                                                  f"at '_', so '{target.dungeon_theme}' never gets props. "
+                                                  f"Make the theme again with New theme"))
+
+
+def _plan_gizmo(result: Plan, target: ExportTarget):
+    data = game.game_data()
+    template = result.root_obj.mt2.source_variant or next(iter(variant_files(data, target.gizmo_dir)), None)
+    if not template or not data.exists(template):
+        result.findings.append(Finding("error", f"no gizmo .variant in {target.gizmo_dir} to start from"))
+        return
+    stem = prefixed(target.mod_id, target.name)
+    pads = collect_pads(result.root_obj) if has_own_pads(result.root_obj) else None
+    variant = derive_variant(data.read(template), stem, result.rel, pads, label="mmoGizmoVariant")
+    exported = [a for a in (export_animation(result.root_obj, a) for a in owned_actions(result.root_obj)) if a.timelines]
+    if exported:
+        animation_rel = f"{target.gizmo_dir}/{stem}"
+        parsed = records.parse(variant)
+        parsed[0].set_prop("animationFile", animation_rel)
+        variant = records.render(parsed)
+        result.texts[f"{animation_rel}.van"] = write_animations(exported)
+    else:
+        result.findings.append(Finding("info", "no animations of its own; it plays the template's, which only works "
+                                               "if the node names match"))
+    result.texts[f"{target.gizmo_dir}/{stem}.variant"] = variant
+
+
+def _plan_vehicle(result: Plan, target: ExportTarget):
+    data = game.game_data()
+    folder = f"vehicles/{target.vehicle_kind}/"
+    template = result.root_obj.mt2.source_variant or next(iter(data.files(folder, ".def")), None)
+    if not template or not data.exists(template):
+        result.findings.append(Finding("error", f"no vehicle .def in {folder} to start from"))
+        return
+    stem = prefixed(target.mod_id, target.name)
+    pads = collect_pads(result.root_obj) if has_own_pads(result.root_obj) else None
+    result.texts[f"{folder}{stem}.def"] = derive_variant(data.read(template), stem, result.rel, pads,
+                                                        label="mmoVehicleDefinition")
+    if pads is not None:
+        result.findings += [Finding(level, message) for level, message in pad_problems(pads)]
+    result.texts[TOOL_FILE] = offer_vehicle(_read_project_text(TOOL_FILE), stem)
+    _plan_display_name(result, target, f"vehicle_definition_{stem}_displayname")
+    _plan_string(result, target, f"vehicle_definition_{stem}_description", result.root_obj.mt2.description, "Description")
+
+
+def _plan_display_name(result: Plan, target: ExportTarget, key: str):
+    _plan_string(result, target, key, result.root_obj.mt2.display_name, "Display name")
+
+
+def _plan_string(result: Plan, target: ExportTarget, key: str, text: str, field_name: str):
+    if not text:
+        result.findings.append(Finding("info", f"set a {field_name}, or the game shows <<{key}>>"))
+        return
+    rel = strings_path(target.mod_id)
+    result.texts[rel] = set_strings(result.texts.get(rel) or _read_project_text(rel), {key: text})
 
 
 def _plan_weapon_category(result: Plan, target: ExportTarget):
@@ -135,6 +228,42 @@ def _plan_weapon_category(result: Plan, target: ExportTarget):
         return
     rel = strings_path(target.mod_id)
     result.texts[rel] = set_strings(_read_project_text(rel), {key: display})
+
+
+def _plan_costume(result: Plan, target: ExportTarget):
+    data = game.game_data()
+    template = result.root_obj.get(TEMPLATE_KEY)
+    if not template or not data.exists(template):
+        result.findings.append(Finding("error", "a costume starts from a game costume; use Import costume"))
+        return
+    stem = prefixed(target.mod_id, target.name)
+    placements = []
+    for part in parts_of(result.root_obj):
+        if part.parent is None or part.parent.mt2.role != "BONE":
+            result.findings.append(Finding("warning", f"'{part.name}' isn't parented to a bone, so it's left out",
+                                           part.name))
+            continue
+        if is_unchanged(part):
+            relative = part.parent.matrix_world.inverted() @ part.matrix_world
+            placements.append(placement(part, part.mt2.source_path, relative.to_scale().x))
+            continue
+        part_plan = plan(part)
+        result.parts.append(part_plan)
+        result.findings += [Finding(f.level, f"{part.mt2.bone}: {f.message}", f.node or part.name)
+                            for f in part_plan.findings if f.level != "info"]
+        if part_plan.built is not None:
+            placements.append(placement(part, part_plan.rel, part.mt2.model_scale if part.mt2.normalise else 1.0))
+    for bone in moved_bones(result.root_obj):
+        result.findings.append(Finding("warning", f"the bone '{bone.name}' was moved, which the game can't store; "
+                                                  f"move its parts instead", bone.name))
+    result.texts[result.rel] = write_costume(data.read(template), stem, placements)
+    changed = [export_animation(result.root_obj, a) for a in owned_actions(result.root_obj) if is_changed(a)]
+    changed = [a for a in changed if a.timelines]
+    if changed:
+        actor = result.root_obj.get(ACTOR_KEY, "humanoid")
+        result.texts[f"skeletons/{actor}.van"] = write_animations(changed)
+    result.texts[f"costumes/{stem}.defaults"] = write_defaults([tuple(c.color) for c in result.root_obj.mt2.palette])
+    _plan_display_name(result, target, f"costume_{stem}")
 
 
 def _default_template(directory: str) -> str | None:
@@ -153,14 +282,61 @@ def _read_project_text(rel: str) -> str:
 
 def write(result: Plan) -> list[str]:
     folder = game.project_dir()
-    model.save(result.built.root, folder / result.rel)
+    written = [rel for part in result.parts for rel in write(part)]
+    if result.built is not None:
+        model.save(result.built.root, folder / result.rel)
+        written.append(result.rel)
     for rel, text in result.texts.items():
         project.write_text(folder, rel, text)
     project.record_export(folder, result.rel, result.root_obj.name)
     result.root_obj.mt2.exported_path = result.rel
+    written += write_art_pack(folder)
     game.forget()
 
-    return [result.rel, *result.texts]
+    return written + [rel for rel in result.texts if rel not in written]
+
+
+def write_art_pack(folder) -> list[str]:
+    settings = bpy.context.scene.mt2
+    data = game.game_data()
+    if folder is None or data is None or not settings.mod_id:
+        return []
+    exported = [p for p in project.read_log(folder) if (folder / p).is_file()]
+    vanilla = data.sources[-1].names()
+    content = pack_content(exported, lambda prefix: any(n.startswith(prefix) for n in vanilla))
+    categories = content["weaponCategories"] if settings.weapon_packs else []
+    if not settings.art_pack_costumes:
+        content["costumes"] = []
+    rel = f"artpacks/{settings.mod_id}.vrt"
+    written = [weapon_pack_path(c) for c in categories]
+    if settings.art_pack and not is_empty(content):
+        written.append(rel)
+    for stale in (folder / "artpacks").glob("*.vrt") if (folder / "artpacks").is_dir() else ():
+        managed = stale.name == f"{settings.mod_id}.vrt" or f"artpacks/{stale.name}".startswith(WEAPON_PACK_PREFIX)
+        if managed and f"artpacks/{stale.name}" not in written:
+            stale.unlink()
+    if not written:
+        return []
+    strings_rel = strings_path(settings.mod_id)
+    strings = {}
+    if rel in written:
+        project.write_text(folder, rel, art_pack(settings.mod_id, settings.art_pack_cost, settings.art_pack_exotic, content))
+        strings[f"artpack_{settings.mod_id}_displayname"] = settings.art_pack_name or settings.mod_id
+        if settings.art_pack_description:
+            strings[f"artpack_{settings.mod_id}_description"] = settings.art_pack_description
+    existing = _read_project_text(strings_rel)
+    for category in categories:
+        project.write_text(folder, weapon_pack_path(category), weapon_pack(category, settings.weapon_pack_cost))
+        strings[f"weaponpack_{category}_displayname"] = _string(existing, f"weapon_category_{category}") or category
+    project.write_text(folder, strings_rel, set_strings(existing, strings))
+
+    return written
+
+
+def _string(text: str, key: str) -> str | None:
+    line = next((r for r in records.parse(text) if r.label == key), None) if text else None
+
+    return line.first() if line else None
 
 
 def show(scene, root_obj: bpy.types.Object, findings: list[Finding]):

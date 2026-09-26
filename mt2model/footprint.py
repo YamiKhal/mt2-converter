@@ -150,3 +150,14 @@ def is_convex(polygon: list[Point]) -> bool:
             return False
 
     return sign != 0
+
+
+def point_in_polygon(point: Point, polygon: list[Point]) -> bool:
+    x, y = point
+    inside = False
+    for i, (ax, ay) in enumerate(polygon):
+        bx, by = polygon[i - 1]
+        if (ay > y) != (by > y) and x < (bx - ax) * (y - ay) / (by - ay) + ax:
+            inside = not inside
+
+    return inside

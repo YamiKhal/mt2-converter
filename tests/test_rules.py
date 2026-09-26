@@ -22,8 +22,10 @@ class NamingTests(unittest.TestCase):
         self.assertEqual(path(asset="tagged", tag_place="wall", tag_kind="light", tag_small=True, tag_extra=["cave"]),
                          "scenery/tagged/w_light_small_cave_mymod_big_rock.vmb")
         self.assertEqual(path(asset="costume_part", costume_set="mymod_knight", bone="hat"), "costumes/mymod_knight/hat.vmb")
+        self.assertEqual(path(asset="modular", theme="castle2", slot="tops_end"),
+                         "building_themes/castle2/tops_end/mymod_big_rock.vmb")
         self.assertEqual(path(asset="modular", theme="mymod_town", slot="tops_end"),
-                         "building_themes/mymod_town/tops_end/mymod_big_rock.vmb")
+                         "building_themes/mymod_town/tops_end/big_rock.vmb")
         self.assertEqual(path(asset="wall", theme="mymod_town", wall_piece="turret"), "wall_themes/mymod_town/turret_mymod_town.vmb")
         self.assertEqual(path(asset="building", building_dir="buildings/inn"), "buildings/inn/mymod_big_rock.vmb")
 

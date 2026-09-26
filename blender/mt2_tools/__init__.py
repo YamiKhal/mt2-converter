@@ -1,7 +1,7 @@
 import bpy
 
-from . import (ops_colors, ops_export, ops_helpers, ops_import, ops_materials, ops_paint, ops_palette, ops_select,
-               preferences, settings, ui)
+from . import (guides, ops_animation, ops_colors, ops_convert, ops_export, ops_helpers, ops_import, ops_materials,
+               ops_paint, ops_palette, ops_select, ops_theme, preferences, settings, ui)
 
 CLASSES = (
     *settings.CLASSES,
@@ -14,6 +14,9 @@ CLASSES = (
     *ops_select.CLASSES,
     *ops_helpers.CLASSES,
     *ops_materials.CLASSES,
+    *ops_animation.CLASSES,
+    *ops_theme.CLASSES,
+    *ops_convert.CLASSES,
     *ui.CLASSES,
 )
 
@@ -27,9 +30,11 @@ def register():
         bpy.utils.register_class(cls)
     settings.register_properties()
     bpy.types.TOPBAR_MT_file_import.append(_menu_import)
+    guides.register()
 
 
 def unregister():
+    guides.unregister()
     bpy.types.TOPBAR_MT_file_import.remove(_menu_import)
     settings.unregister_properties()
     for cls in reversed(CLASSES):

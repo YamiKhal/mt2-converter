@@ -2,7 +2,7 @@ import bpy
 
 from . import game, pipeline, project
 from .convert_out import asset_root
-from .mt2model.naming import clean_word, mod_id_problem
+from .mt2model.naming import clean_word, mod_id_problem, model_path, target_problems
 
 
 def _root(context):
@@ -35,6 +35,14 @@ class MT2_OT_export(_AssetOperator):
     bl_idname = "mt2.export"
     bl_label = "Export"
     bl_description = "Check, then write the model and its data files into the mod folder"
+
+    @classmethod
+    def description(cls, context, properties):
+        root = _root(context)
+        target = pipeline.target_for(root) if root else None
+        path = model_path(target) if target and not target_problems(target) else ""
+
+        return f"Check, then write {path} and its data files into the mod folder" if path else cls.bl_description
 
     def execute(self, context):
         folder = game.project_dir()
@@ -88,6 +96,36 @@ class MT2_OT_select_finding(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class MT2_OT_setup(bpy.types.Operator):
+    bl_idname = "mt2.setup"
+    bl_label = "Set up"
+    bl_description = "Point the tools at the game and at your mod's folder"
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=420)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        row = layout.row(align=True)
+        row.prop(game.preferences(), "game_path")
+        row.operator("mt2.detect_paths", text="", icon="VIEWZOOM")
+        settings = context.scene.mt2
+        layout.prop(settings, "project_dir")
+        row = layout.row(align=True)
+        row.prop(settings, "mod_id")
+        row.operator("mt2.load_project", text="", icon="FILE_REFRESH")
+        folder = game.project_dir()
+        if folder is not None and not (folder / project.MANIFEST).exists():
+            layout.operator("mt2.create_project", icon="ADD")
+
+    def execute(self, context):
+        game.forget()
+
+        return {"FINISHED"}
+
+
 class MT2_OT_load_project(bpy.types.Operator):
     bl_idname = "mt2.load_project"
     bl_label = "Read manifest"
@@ -133,4 +171,4 @@ class MT2_OT_create_project(bpy.types.Operator):
 
 
 CLASSES = (MT2_OT_check, MT2_OT_export, MT2_OT_forget_export, MT2_OT_select_finding,
-           MT2_OT_load_project, MT2_OT_create_project)
+           MT2_OT_setup, MT2_OT_load_project, MT2_OT_create_project)

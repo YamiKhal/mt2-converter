@@ -4,8 +4,10 @@ import textwrap
 import bpy
 
 from . import game, pipeline
+from .anim_objects import owned_actions
 from .convert_out import asset_root
-from .mt2model.naming import model_path, target_problems
+from .costume_objects import costume_root
+from .mt2model.naming import target_problems
 
 LEVEL_ICONS = {"error": "ERROR", "warning": "INFO", "info": "CHECKMARK"}
 CHARACTER_WIDTH = 7.5
@@ -13,13 +15,24 @@ CHARACTER_WIDTH = 7.5
 ASSET_FIELDS = {
     "scenery": ("scenery_type",),
     "tagged": ("tag_place", "tag_kind", "tag_small", "tag_extra"),
-    "weapon": ("weapon_category", "item_level", "display_name"),
-    "building": ("building_dir", "display_name", "source_variant"),
+    "weapon": ("weapon_category", "item_level"),
+    "building": ("building_dir", "display_name"),
+    "vehicle": ("vehicle_kind", "display_name", "description"),
+    "gizmo": ("gizmo_dir",),
     "modular": ("theme", "slot"),
     "wall": ("theme", "wall_piece"),
+    "bridge": ("theme", "bridge_piece"),
+    "dungeon_tile": ("dungeon_theme", "tile_kind", "shape"),
+    "costume": ("display_name",),
     "costume_part": ("costume_set", "bone", "normalise"),
     "raw": ("raw_path",),
 }
+NAMELESS = ("raw", "costume_part", "dungeon_tile", "wall", "bridge")
+ANIMATED = ("gizmo", "costume")
+LIGHT_ASSETS = ("scenery", "tagged")
+PAD_ASSETS = ("building", "vehicle", "gizmo")
+
+_vanilla_categories: dict[str, bool] = {}
 
 
 class _Panel(bpy.types.Panel):
@@ -28,35 +41,31 @@ class _Panel(bpy.types.Panel):
     bl_category = "MT2"
 
 
-class MT2_PT_project(_Panel):
-    bl_label = "Mod"
+def _split(layout):
+    layout.use_property_split = True
+    layout.use_property_decorate = False
 
-    def draw(self, context):
-        layout = self.layout
-        settings = context.scene.mt2
-        if not game.preferences().game_path:
-            box = layout.box()
-            box.label(text="Game folder not set", icon="ERROR")
-            box.operator("mt2.detect_paths", icon="VIEWZOOM")
-        elif game.game_data() is None:
-            layout.label(text="Game data not found in the game folder", icon="ERROR")
-        layout.prop(settings, "project_dir")
-        row = layout.row(align=True)
-        row.prop(settings, "mod_id")
-        row.operator("mt2.load_project", text="", icon="FILE_REFRESH")
-        folder = game.project_dir()
-        if folder is not None and not (folder / "manifest.json").exists():
-            layout.operator("mt2.create_project", icon="ADD")
+    return layout
 
 
 class MT2_PT_import(_Panel):
     bl_label = "Import"
 
     def draw(self, context):
-        col = self.layout.column(align=True)
-        col.operator("mt2.import_game", icon="VIEWZOOM")
-        col.operator("mt2.import_file", icon="FILEBROWSER")
-        col.operator("mt2.add_reference", icon="OUTLINER_OB_EMPTY")
+        layout = self.layout
+        if not game.preferences().game_path or game.game_data() is None:
+            layout.operator("mt2.setup", icon="ERROR")
+            return
+        column = layout.column()
+        column.scale_y = 1.2
+        column.operator("mt2.import_game", icon="VIEWZOOM")
+        row = layout.row(align=True)
+        row.operator("mt2.import_file", text="File", icon="FILEBROWSER")
+        row.operator("mt2.import_costume", text="Costume", icon="ARMATURE_DATA")
+        row.operator("mt2.add_reference", text="Reference", icon="OUTLINER_OB_EMPTY")
+        row = layout.row(align=True)
+        row.operator("mt2.convert", icon="MODIFIER")
+        row.operator("mt2.new_theme", icon="ASSET_MANAGER")
 
 
 class MT2_PT_asset(_Panel):
@@ -64,36 +73,64 @@ class MT2_PT_asset(_Panel):
 
     def draw(self, context):
         layout = self.layout
-        obj = context.active_object
-        root = asset_root(obj)
-        if obj is not None and obj.mt2.role != "NONE":
-            layout.label(text=f"Role: {obj.mt2.bl_rna.properties['role'].enum_items[obj.mt2.role].name}", icon="INFO")
+        settings = context.scene.mt2
+        root = asset_root(context.active_object)
+        if not settings.mod_id or game.project_dir() is None:
+            layout.operator("mt2.setup", icon="ERROR")
         if root is None:
             layout.operator("mt2.make_asset", icon="ADD")
             return
+        _split(layout)
         s = root.mt2
-        layout.label(text=root.name, icon="OBJECT_DATA")
         layout.prop(s, "asset")
-        if s.asset != "raw":
+        if s.asset not in NAMELESS:
             layout.prop(s, "name")
-        for field in ASSET_FIELDS.get(s.asset, ()):
+        for field in _fields(root):
             layout.prop(s, field)
-        if s.asset == "costume_part" and s.model_scale != 1.0:
-            layout.label(text=f"modelScale {s.model_scale:.6f}")
-        target = pipeline.target_for(root)
-        problems = target_problems(target)
-        layout.label(text=problems[0] if problems else model_path(target), icon="ERROR" if problems else "FILE")
-        if s.exported_path:
-            row = layout.row()
-            row.label(text=f"Exported as {s.exported_path}", icon="LOCKED")
-            row.operator("mt2.forget_export", text="", icon="UNLOCKED")
+        problems = target_problems(pipeline.target_for(root))
+        for line in _wrap(context, problems[0], 30) if problems else []:
+            layout.label(text=line, icon="ERROR")
         row = layout.row(align=True)
+        row.scale_y = 1.3
         row.operator("mt2.check", icon="CHECKMARK")
         row.operator("mt2.export", icon="EXPORT")
-        settings = context.scene.mt2
-        if settings.findings_root == root:
-            for index, finding in enumerate(settings.findings):
-                _draw_finding(layout.box(), context, index, finding)
+        if s.exported_path:
+            row.operator("mt2.forget_export", text="", icon="LOCKED")
+        _draw_findings(layout, context, root)
+
+
+def _fields(root) -> list[str]:
+    s = root.mt2
+    fields = list(ASSET_FIELDS.get(s.asset, ()))
+    if s.asset == "costume_part" and costume_root(root.parent) is not None:
+        fields = ["normalise"]
+    if s.asset == "weapon" and not _is_vanilla_category(s.weapon_category):
+        fields.append("display_name")
+
+    return fields
+
+
+def _is_vanilla_category(category: str) -> bool:
+    if category not in _vanilla_categories:
+        data = game.game_data()
+        names = data.sources[-1].names() if data else []
+        _vanilla_categories[category] = any(n.startswith(f"weapons/{category}/") for n in names)
+
+    return _vanilla_categories[category]
+
+
+def _draw_findings(layout, context, root):
+    settings = context.scene.mt2
+    if settings.findings_root != root:
+        return
+    notes = [f for f in settings.findings if f.level == "info"]
+    for index, finding in enumerate(settings.findings):
+        if finding.level != "info" or settings.show_notes:
+            _draw_finding(layout.box(), context, index, finding)
+    if notes:
+        text = f"{len(notes)} note{'s' if len(notes) > 1 else ''}"
+        icon = "DISCLOSURE_TRI_DOWN" if settings.show_notes else "DISCLOSURE_TRI_RIGHT"
+        layout.prop(settings, "show_notes", text=text, icon=icon, emboss=False)
 
 
 def _draw_finding(layout, context, index: int, finding):
@@ -116,37 +153,46 @@ def _wrap(context, text: str, margin: int) -> list[str]:
     return textwrap.wrap(text, columns) or [""]
 
 
-class MT2_PT_materials(_Panel):
-    bl_label = "Materials"
+class MT2_PT_costume_colors(_Panel):
+    bl_label = "Colors"
+    bl_parent_id = "MT2_PT_asset"
+
+    @classmethod
+    def poll(cls, context):
+        root = asset_root(context.active_object)
+
+        return root is not None and root.mt2.asset == "costume"
+
+    def draw(self, context):
+        root = asset_root(context.active_object)
+        grid = self.layout.grid_flow(columns=4, even_columns=True, align=True)
+        for entry in root.mt2.palette:
+            grid.prop(entry, "color", text="")
+
+
+class MT2_PT_animation(_Panel):
+    bl_label = "Animation"
+    bl_parent_id = "MT2_PT_asset"
     bl_options = {"DEFAULT_CLOSED"}
 
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None and context.active_object.type == "MESH"
+        root = asset_root(context.active_object)
+
+        return root is not None and root.mt2.asset in ANIMATED
 
     def draw(self, context):
         layout = self.layout
-        obj = context.active_object
-        names = context.window_manager.mt2_materials
-        for index, slot in enumerate(obj.material_slots):
-            row = layout.row(align=True)
-            row.label(text=f"Slot {index + 1}")
-            game_name = _game_name(slot.material)
-            missing = bool(game_name) and game_name not in names
-            button = row.operator("mt2.pick_game_material", text=game_name or "Empty",
-                                  icon="ERROR" if missing else "MATERIAL")
-            button.slot = index
+        root = asset_root(context.active_object)
+        has_actions = bool(owned_actions(root))
         row = layout.row(align=True)
-        for name in ("Material_tint", "emissive", "costume"):
-            row.operator("mt2.setup_material", text=name.replace("_tint", "")).name = name
-        layout.operator("mt2.new_textured_material", icon="TEXTURE")
-
-
-def _game_name(material) -> str:
-    if material is None:
-        return ""
-
-    return material.mt2.game_name or re.sub(r"\.\d{3}$", "", material.name)
+        if has_actions:
+            row.prop(root.mt2, "animation", text="")
+        row.operator("mt2.new_animation", text="" if has_actions else "New animation", icon="ADD")
+        if root.mt2.asset == "costume":
+            row.operator("mt2.import_animations", text="", icon="IMPORT")
+        if has_actions:
+            layout.prop(root.mt2, "playback", text="")
 
 
 class MT2_PT_paint(_Panel):
@@ -165,7 +211,6 @@ class MT2_PT_paint(_Panel):
         row.operator("mt2.select_color", icon="RESTRICT_SELECT_OFF")
         row.prop(settings, "select_connected", text="", icon="LINKED")
         if settings.recent_colors:
-            layout.label(text="Recent colors")
             grid = layout.grid_flow(columns=4, even_columns=True, align=True)
             for index, entry in enumerate(settings.recent_colors):
                 cell = grid.row(align=True)
@@ -181,7 +226,6 @@ class MT2_PT_palette(_Panel):
     def draw(self, context):
         layout = self.layout
         settings = context.scene.mt2
-        layout.label(text="Costume parts use 1-8, dungeon tiles 1-4")
         grid = layout.grid_flow(columns=4, align=True)
         for slot in range(1, 9):
             grid.operator("mt2.palette_slot", text=str(slot), depress=settings.palette_slot == slot).slot = slot
@@ -195,21 +239,116 @@ class MT2_PT_palette(_Panel):
         layout.operator("mt2.palette_preview", icon="COLOR")
 
 
+class MT2_PT_materials(_Panel):
+    bl_label = "Materials"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None and context.active_object.type == "MESH"
+
+    def draw(self, context):
+        layout = self.layout
+        names = context.window_manager.mt2_materials
+        column = layout.column(align=True)
+        for index, slot in enumerate(context.active_object.material_slots):
+            game_name = _game_name(slot.material)
+            missing = bool(game_name) and game_name not in names
+            column.operator("mt2.pick_game_material", text=game_name or "Empty",
+                            icon="ERROR" if missing else "MATERIAL").slot = index
+        row = layout.row(align=True)
+        for name in ("Material_tint", "emissive", "costume"):
+            row.operator("mt2.setup_material", text=name.replace("_tint", "")).name = name
+        row.operator("mt2.new_textured_material", text="", icon="TEXTURE")
+
+
+def _game_name(material) -> str:
+    if material is None:
+        return ""
+
+    return material.mt2.game_name or re.sub(r"\.\d{3}$", "", material.name)
+
+
 class MT2_PT_helpers(_Panel):
     bl_label = "Helpers"
     bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
-        col = self.layout.column(align=True)
-        col.operator("mt2.bake_colors", icon="RENDER_STILL")
-        col.operator("mt2.flat_colors", icon="MOD_TRIANGULATE")
-        col.separator()
-        col.operator("mt2.add_light", icon="LIGHT_POINT")
-        col.operator("mt2.add_obstruction", icon="MOD_BOOLEAN")
-        col.operator("mt2.footprint_preview", icon="SNAP_FACE")
+        layout = self.layout
         obj = context.active_object
-        if obj is not None:
-            self.layout.prop(obj.mt2, "role")
+        root = asset_root(obj)
+        asset = root.mt2.asset if root else ""
+        column = layout.column(align=True)
+        column.operator("mt2.bake_colors", icon="RENDER_STILL")
+        column.operator("mt2.flat_colors", icon="MOD_TRIANGULATE")
+        column = layout.column(align=True)
+        if asset in LIGHT_ASSETS:
+            column.operator("mt2.add_light", icon="LIGHT_POINT")
+            column.operator("mt2.add_obstruction", icon="MOD_BOOLEAN")
+        if asset in PAD_ASSETS:
+            row = column.row(align=True)
+            row.operator("mt2.add_pad", icon="MESH_PLANE")
+            row.operator("mt2.add_entrance", icon="CURVE_PATH")
+        if asset == "dungeon_tile":
+            column.operator("mt2.add_socket", icon="EMPTY_SINGLE_ARROW")
+        if asset in ("scenery", "building"):
+            column.operator("mt2.footprint_preview", icon="SNAP_FACE")
+        if obj is not None and obj is not root and obj.mt2.role != "NONE":
+            _split(layout).prop(obj.mt2, "role")
+        if obj is not None and obj.mt2.role == "SOCKET":
+            _split(layout).prop(obj.mt2, "socket_tags")
+        if asset in ("modular", "wall", "bridge"):
+            layout.prop(context.scene.mt2, "show_guides")
 
 
-CLASSES = (MT2_PT_project, MT2_PT_import, MT2_PT_asset, MT2_PT_materials, MT2_PT_paint, MT2_PT_palette, MT2_PT_helpers)
+class MT2_PT_project(_Panel):
+    bl_label = "Mod"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        layout = _split(self.layout)
+        settings = context.scene.mt2
+        layout.prop(settings, "project_dir")
+        row = layout.row(align=True)
+        row.prop(settings, "mod_id")
+        row.operator("mt2.load_project", text="", icon="FILE_REFRESH")
+        folder = game.project_dir()
+        if folder is not None and not (folder / "manifest.json").exists():
+            layout.operator("mt2.create_project", icon="ADD")
+
+
+class MT2_PT_art_pack(_Panel):
+    bl_label = "Art pack"
+    bl_parent_id = "MT2_PT_project"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw_header(self, context):
+        self.layout.prop(context.scene.mt2, "art_pack", text="")
+
+    def draw(self, context):
+        layout = _split(self.layout)
+        settings = context.scene.mt2
+        layout.active = settings.art_pack
+        layout.prop(settings, "art_pack_name")
+        layout.prop(settings, "art_pack_description")
+        layout.prop(settings, "art_pack_cost")
+        layout.prop(settings, "art_pack_costumes")
+        layout.prop(settings, "art_pack_exotic")
+
+
+class MT2_PT_weapon_packs(_Panel):
+    bl_label = "Weapon packs"
+    bl_parent_id = "MT2_PT_project"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw_header(self, context):
+        self.layout.prop(context.scene.mt2, "weapon_packs", text="")
+
+    def draw(self, context):
+        layout = _split(self.layout)
+        layout.active = context.scene.mt2.weapon_packs
+        layout.prop(context.scene.mt2, "weapon_pack_cost")
+
+
+CLASSES = (MT2_PT_import, MT2_PT_asset, MT2_PT_costume_colors, MT2_PT_animation, MT2_PT_paint, MT2_PT_palette,
+           MT2_PT_materials, MT2_PT_helpers, MT2_PT_project, MT2_PT_art_pack, MT2_PT_weapon_packs)

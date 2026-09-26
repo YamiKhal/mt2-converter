@@ -1,7 +1,7 @@
 import math
 
 import bpy
-from mathutils import Matrix
+from mathutils import Matrix, Vector
 
 from . import convert_out, game, shading
 from .convert_out import asset_root
@@ -10,8 +10,11 @@ from .mt2model.axes import swap_ground
 from .mt2model.costume import read_defaults
 from .mt2model.footprint import building_footprint, scenery_footprint
 from .mt2model.naming import clean_word
+from .pad_objects import new_entrance, new_pad
+from .socket_objects import new_socket
 
 LIGHT_RADIUS_PER_DIAGONAL = 0.375
+PAD_ASSETS = ("building", "vehicle")
 
 _costume_items: list = []
 
@@ -45,6 +48,9 @@ class MT2_OT_make_asset(bpy.types.Operator):
         if not obj.mt2.name:
             obj.mt2.name = clean_word(obj.name)
         obj.mt2.normalise = True
+        if obj.parent is not None and obj.parent.mt2.role == "BONE":
+            obj.mt2.asset = "costume_part"
+            obj.mt2.bone = obj.parent.get("mt2_node", obj.parent.name)
 
         return {"FINISHED"}
 
@@ -95,6 +101,80 @@ class MT2_OT_add_obstruction(bpy.types.Operator):
         mesh.from_pydata([(-h, -h, 0), (h, -h, 0), (h, h, 0), (-h, h, 0)], [], [(0, 1, 2, 3)])
         obj = _helper(context, "Obstruction", mesh, "OBSTRUCTION", root)
         obj.location = (context.scene.cursor.location.x, context.scene.cursor.location.y, root.matrix_world.translation.z)
+
+        return {"FINISHED"}
+
+
+class MT2_OT_add_pad(bpy.types.Operator):
+    bl_idname = "mt2.add_pad"
+    bl_label = "Add pad"
+    bl_description = "Add an NPC pad at the 3D cursor, on the building's ground level. NPCs stand on pads"
+    bl_options = {"REGISTER", "UNDO"}
+
+    size: bpy.props.FloatProperty(name="Size", min=0.2, default=2.0)
+
+    @classmethod
+    def poll(cls, context):
+        root = asset_root(context.active_object)
+
+        return root is not None and root.mt2.asset in PAD_ASSETS
+
+    def execute(self, context):
+        root = asset_root(context.active_object)
+        cursor = context.scene.cursor.location
+        location = Vector((cursor.x, cursor.y, root.matrix_world.translation.z))
+        pad = new_pad(root, location, self.size, context.collection)
+        new_entrance(pad, context.collection)
+        _select(context, pad)
+
+        return {"FINISHED"}
+
+
+class MT2_OT_add_entrance(bpy.types.Operator):
+    bl_idname = "mt2.add_entrance"
+    bl_label = "Add entrance"
+    bl_description = "Add a path to the selected pad. NPCs walk it from its first point, outside, to the pad"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+
+        return obj is not None and obj.mt2.role in ("PAD", "ENTRANCE")
+
+    def execute(self, context):
+        obj = context.active_object
+        pad = obj if obj.mt2.role == "PAD" else obj.parent
+        _select(context, new_entrance(pad, context.collection))
+
+        return {"FINISHED"}
+
+
+def _select(context, obj):
+    for other in context.selected_objects:
+        other.select_set(False)
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+
+
+class MT2_OT_add_socket(bpy.types.Operator):
+    bl_idname = "mt2.add_socket"
+    bl_label = "Add socket"
+    bl_description = "Add a prop socket at the 3D cursor. The dungeon places a prop whose tags match the socket's"
+    bl_options = {"REGISTER", "UNDO"}
+
+    tags: bpy.props.StringProperty(name="Tags", default="floor prop")
+
+    @classmethod
+    def poll(cls, context):
+        root = asset_root(context.active_object)
+
+        return root is not None and root.mt2.asset == "dungeon_tile"
+
+    def execute(self, context):
+        root = asset_root(context.active_object)
+        socket = new_socket(root, Matrix.Translation(context.scene.cursor.location), self.tags, context.collection)
+        _select(context, socket)
 
         return {"FINISHED"}
 
@@ -172,5 +252,6 @@ class MT2_OT_palette_preview(bpy.types.Operator):
         return {"FINISHED"}
 
 
-CLASSES = (MT2_OT_make_asset, MT2_OT_add_light, MT2_OT_add_obstruction, MT2_OT_footprint_preview,
+CLASSES = (MT2_OT_make_asset, MT2_OT_add_light, MT2_OT_add_obstruction, MT2_OT_add_pad, MT2_OT_add_entrance,
+           MT2_OT_add_socket, MT2_OT_footprint_preview,
            MT2_OT_palette_preview)

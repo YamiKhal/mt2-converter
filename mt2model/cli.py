@@ -3,7 +3,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import detect, model, murmur
+from . import detect, gltf, model, murmur
 from .assets import ASSET_TYPES, asset_type
 from .footprint import building_footprint, scenery_footprint
 from .gamedata import GameData
@@ -76,6 +76,18 @@ def cmd_selftest(args):
     sys.exit(1 if failed else 0)
 
 
+def cmd_convert(args):
+    root = gltf.convert(Path(args.file), args.height)
+    model.save(root, Path(args.out))
+    vertices = sum(len(f.vertices) for f in root.fragments)
+    print(f"wrote {args.out}: {vertices} vertices, {len(root.fragments)} fragment(s), material Material_tint")
+    if args.game or os.environ.get("MT2_GAME") or detect.find_game():
+        findings = validate(root, asset_type(args.asset), MaterialCatalog(_game(args)))
+        for f in findings:
+            print(f"{f.level:7} {f.message}")
+        sys.exit(1 if has_errors(findings) else 0)
+
+
 def cmd_hash(args):
     print(murmur.variant_id(args.name))
 
@@ -111,6 +123,13 @@ def main(argv: list[str] | None = None):
 
     p = sub.add_parser("selftest", help="read and rewrite every game model, compare bytes")
     p.set_defaults(run=cmd_selftest)
+
+    p = sub.add_parser("convert", help="convert a glTF (.glb/.gltf) model into a .vmb with vertex colors")
+    p.add_argument("file")
+    p.add_argument("out")
+    p.add_argument("--height", type=float, help="scale so the model is this tall (a character is about 2)")
+    p.add_argument("--asset", choices=sorted(ASSET_TYPES), default="scenery", help="rules to check it against")
+    p.set_defaults(run=cmd_convert)
 
     p = sub.add_parser("hash", help="variant id the game saves for a model file name")
     p.add_argument("name")

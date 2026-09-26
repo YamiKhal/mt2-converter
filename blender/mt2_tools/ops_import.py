@@ -4,12 +4,19 @@ import bpy
 from bpy_extras.io_utils import ImportHelper
 
 from . import convert_in, game
-from .mt2model import model
+from .mt2model import model, records
 from .mt2model.assets import guess_from_path
 from .mt2model.axes import swap_ground
+from .mt2model.animations import read_animations
+from .mt2model.dungeons import SHAPES, read_sockets
 from .mt2model.obstruction import obs_file_name, read_obstruction
+from .mt2model.pads import read_pads
 from .mt2model.variants import variant_for_model
-from .settings import building_dir_items
+from .anim_objects import import_animations
+from .costume_objects import import_costume
+from .pad_objects import create_pads
+from .socket_objects import create_sockets
+from .settings import building_dir_items, gizmo_dir_items
 
 TOP_FOLDERS = ("scenery", "weapons", "costumes", "building_themes", "wall_themes", "buildings", "bridge_themes",
                "vehicles", "gizmo", "dungeon", "portals", "depots", "docks", "skeletons")
@@ -47,6 +54,15 @@ def import_bytes(context, raw: bytes, rel: str, collection=None) -> bpy.types.Ob
         _import_obstruction(obj, rel, data, collection)
         if obj.mt2.asset == "building":
             obj.mt2.source_variant = variant_for_model(data, rel) or ""
+            _import_pads(obj, data, obj.mt2.source_variant, collection)
+        if obj.mt2.asset == "gizmo":
+            obj.mt2.source_variant = variant_for_model(data, rel) or ""
+            _import_gizmo(obj, data, collection)
+        if obj.mt2.asset == "dungeon_tile" and data.exists(rel[: -len(".vmb")] + ".vrt"):
+            create_sockets(obj, read_sockets(data.read(rel[: -len(".vmb")] + ".vrt")), collection)
+        if obj.mt2.asset == "vehicle" and data.exists(rel[: -len(".vmb")] + ".def"):
+            obj.mt2.source_variant = rel[: -len(".vmb")] + ".def"
+            _import_pads(obj, data, obj.mt2.source_variant, collection)
 
     return obj
 
@@ -77,8 +93,39 @@ def _describe(obj, rel: str, stem: str):
     elif s.asset == "building":
         if "/".join(parts[:2]) in {item[0] for item in building_dir_items()}:
             s.building_dir = "/".join(parts[:2])
+    elif s.asset == "vehicle":
+        s.vehicle_kind = parts[1]
+    elif s.asset == "gizmo" and "/".join(parts[:2]) in {item[0] for item in gizmo_dir_items()}:
+        s.gizmo_dir = "/".join(parts[:2])
+    elif s.asset == "bridge":
+        s.theme = parts[1]
+        s.bridge_piece = "ramp" if stem.startswith("ramp") else "bridge"
+    elif s.asset == "dungeon_tile" and parts[4] in SHAPES:
+        s.dungeon_theme, s.tile_kind, s.shape = parts[2], parts[3], parts[4]
     else:
+        s.asset = "raw"
         s.raw_path = rel
+
+
+def _import_gizmo(obj, data, collection):
+    variant_rel = obj.mt2.source_variant
+    if not variant_rel:
+        return
+    owner = next(iter(records.parse(data.read(variant_rel))), None)
+    if owner is None:
+        return
+    create_pads(obj, read_pads(owner), collection)
+    animation_file = f"{owner.prop('animationFile') or ''}.van"
+    if data.exists(animation_file):
+        import_animations(obj, read_animations(data.read(animation_file)))
+
+
+def _import_pads(obj, data, variant_rel: str, collection):
+    if not variant_rel:
+        return
+    owner = next(iter(records.parse(data.read(variant_rel))), None)
+    if owner is not None:
+        create_pads(obj, read_pads(owner), collection)
 
 
 def _import_obstruction(obj, rel: str, data, collection):
@@ -195,4 +242,40 @@ class MT2_OT_add_reference(bpy.types.Operator):
         return {"FINISHED"}
 
 
-CLASSES = (MT2_OT_import_file, MT2_OT_import_game, MT2_OT_add_reference)
+_costume_items: list = []
+
+
+def _game_costumes(self, context):
+    data = game.game_data()
+    if data is not None and not _costume_items:
+        _costume_items.extend((rel, rel.rsplit("/", 1)[-1][: -len(".costume")], rel)
+                              for rel in data.files("costumes/", ".costume"))
+
+    return _costume_items or [("", "Set the game folder in the add-on preferences", "")]
+
+
+class MT2_OT_import_costume(bpy.types.Operator):
+    bl_idname = "mt2.import_costume"
+    bl_label = "Import costume"
+    bl_description = ("Import a game costume: its skeleton and parts, placed like in the game, with its colors. "
+                      "Edit or replace parts, then export it as a new costume")
+    bl_options = {"REGISTER", "UNDO"}
+    bl_property = "costume"
+
+    costume: bpy.props.EnumProperty(name="Costume", items=_game_costumes)
+
+    def invoke(self, context, event):
+        context.window_manager.invoke_search_popup(self)
+
+        return {"RUNNING_MODAL"}
+
+    def execute(self, context):
+        if game.game_data() is None or not self.costume:
+            self.report({"ERROR"}, "Set the game folder in the add-on preferences first")
+            return {"CANCELLED"}
+        _select(context, import_costume(context, self.costume))
+
+        return {"FINISHED"}
+
+
+CLASSES = (MT2_OT_import_file, MT2_OT_import_game, MT2_OT_import_costume, MT2_OT_add_reference)

@@ -28,6 +28,12 @@ formats = module("mt2model.formats")
 detect = module("mt2model.detect")
 records = module("mt2model.records")
 obstruction = module("mt2model.obstruction")
+pads = module("mt2model.pads")
+costume_files = module("mt2model.costume_files")
+animations = module("mt2model.animations")
+dungeons = module("mt2model.dungeons")
+gltf = module("mt2model.gltf")
+offered_vehicles = module("mt2model.vehicle_tool").offered_vehicles
 
 GAME = detect.find_game()
 PROJECT = Path(tempfile.mkdtemp(prefix="mt2_project_", dir=SANDBOX))
@@ -194,6 +200,20 @@ def selected_faces(obj):
     bpy.ops.object.mode_set(mode="EDIT")
 
     return chosen
+
+
+def textured_material():
+    image = bpy.data.images.new("tex", 4, 4)
+    image.pixels = [0.0, 1.0, 0.0, 1.0] * 16
+    material = bpy.data.materials.new("textured")
+    if material.node_tree is None:
+        material.use_nodes = True
+    nodes = material.node_tree.nodes
+    texture = nodes.new("ShaderNodeTexImage")
+    texture.image = image
+    material.node_tree.links.new(texture.outputs["Color"], nodes["Principled BSDF"].inputs["Base Color"])
+
+    return material
 
 
 def game_material(obj, name):
@@ -493,6 +513,7 @@ class NewModels(unittest.TestCase):
         mat = (PROJECT / "materials/test_models_crate.mat").read_text()
         self.assertLess(mat.index("texture"), mat.index("shader"))
         self.assertEqual(cube.material_slots[0].material.mt2.game_name, "test_models_crate")
+        self.assertIsNotNone(cube.data.color_attributes.active_color, "no colors would preview black")
         bpy.ops.mt2.make_asset()
         cube.mt2.name = "crate"
         plan = pipeline.plan(cube)
@@ -518,6 +539,259 @@ class NewModels(unittest.TestCase):
         bpy.ops.object.mode_set(mode="OBJECT")
         colors = {tuple(round(c, 3) for c in d.color_srgb) for d in cube.data.color_attributes.active_color.data}
         self.assertEqual(colors, {(1.0, 1.0, 1.0, 1.0)})
+
+    def test_imported_pads_export_unchanged(self):
+        tavern = import_game("buildings/tavern/base.vmb")
+        original = pads.read_pads(records.parse(game.game_data().read("buildings/tavern/base.variant"))[0])
+        self.assertEqual(len([c for c in tavern.children if c.mt2.role == "PAD"]), len(original))
+        tavern.mt2.name = "padded"
+        plan = pipeline.plan(tavern)
+        written = pads.read_pads(records.parse(plan.texts["buildings/tavern/test_models_padded.variant"])[0])
+        self.assertEqual([p.name for p in written], [p.name for p in original])
+        for new, old in zip(written, original):
+            for a, b in zip(new.corners + [pt for e in new.entrances for pt in e.points],
+                            old.corners + [pt for e in old.entrances for pt in e.points]):
+                self.assertTrue(all(abs(x - y) < 1e-4 for x, y in zip(a, b)), (a, b))
+
+    def test_add_pad_and_entrance(self):
+        hut = add_cube("Hut", size=6.0, location=(0, 0, 3))
+        game_material(hut, "Material_tint")
+        bpy.ops.mt2.make_asset()
+        hut.mt2.asset = "building"
+        hut.mt2.building_dir = "buildings/tavern"
+        hut.mt2.name = "hut"
+        bpy.context.scene.cursor.location = (0, -2, 0)
+        self.assertEqual(bpy.ops.mt2.add_pad(), {"FINISHED"})
+        pad = bpy.context.view_layer.objects.active
+        self.assertEqual(pad.mt2.role, "PAD")
+        self.assertEqual(bpy.ops.mt2.add_entrance(), {"FINISHED"})
+        plan = pipeline.plan(hut)
+        written = pads.read_pads(records.parse(plan.texts["buildings/tavern/test_models_hut.variant"])[0])
+        self.assertEqual(len(written), 1)
+        self.assertEqual(len(written[0].corners), 4)
+        self.assertEqual(len(written[0].entrances), 2)
+        self.assertTrue(all(abs(c[1]) < 1e-6 for c in written[0].corners))
+        self.assertAlmostEqual(written[0].entrances[0].points[0][2], -10.0, places=4)
+        bpy.context.scene.cursor.location = (0, 0, 0)
+
+    def test_costume_round_trip(self):
+        bpy.ops.mt2.import_costume(costume="costumes/knight.costume")
+        root = bpy.context.view_layer.objects.active
+        self.assertEqual(root.mt2.asset, "costume")
+        self.assertEqual(len(root.mt2.palette), 8)
+        original = {p.bone: p for p in costume_files.read_costume(game.game_data().read("costumes/knight.costume")).parts}
+        plan = pipeline.plan(root)
+        self.assertTrue(plan.ok, [f.message for f in plan.findings])
+        self.assertEqual(plan.parts, [])
+        written = {p.bone: p for p in costume_files.read_costume(plan.texts["costumes/test_models_knight.costume"]).parts}
+        for bone, old in original.items():
+            new = written[bone]
+            self.assertEqual(new.model_file, old.model_file, bone)
+            if old.model_file:
+                self.assertAlmostEqual(new.model_scale, old.model_scale, places=4)
+                for a, b in zip(new.offset, old.offset):
+                    self.assertAlmostEqual(a, b, places=4, msg=bone)
+        self.assertIn("mmoCostumeDefaults", plan.texts["costumes/test_models_knight.defaults"])
+        parts = [o for o in root.children_recursive if o.mt2.asset == "costume_part"]
+        lowest = min((o.matrix_world @ Vector(c)).z for o in parts for c in o.bound_box)
+        self.assertAlmostEqual(lowest, 0.0, delta=0.03, msg="bone offsets chain down the skeleton, so feet touch 0")
+        root.mt2.display_name = "Red Knight"
+        self.assertIn('costume_test_models_knight "Red Knight"', pipeline.plan(root).texts["i18n/english/test_models_models.vrt"])
+        torso = next(o for o in parts if o.mt2.bone == "torso")
+        torso.location.z -= 0.3
+        plan = pipeline.plan(root)
+        self.assertEqual([p.rel for p in plan.parts], ["costumes/test_models_knight/torso.vmb"])
+        torso.location.z += 0.3
+        head = next(o for o in parts if o.mt2.bone == "head")
+        head.data.vertices[0].co.x += 0.01
+        plan = pipeline.plan(root)
+        self.assertEqual([p.rel for p in plan.parts], ["costumes/test_models_knight/head.vmb"])
+        written = {p.bone: p for p in costume_files.read_costume(plan.texts["costumes/test_models_knight.costume"]).parts}
+        self.assertEqual(written["head"].model_file, "costumes/test_models_knight/head.vmb")
+        self.assertAlmostEqual(written["head"].model_scale, original["head"].model_scale, places=2)
+        for a, b in zip(written["head"].offset, original["head"].offset):
+            self.assertAlmostEqual(a, b, places=4)
+        self.assertEqual(run(bpy.ops.mt2.export), {"FINISHED"}, [f.message for f in bpy.context.scene.mt2.findings])
+        self.assertTrue((PROJECT / "costumes/test_models_knight/head.vmb").is_file())
+        self.assertTrue((PROJECT / "costumes/test_models_knight.costume").is_file())
+
+    def test_art_pack_follows_exports(self):
+        rock = add_cube("Packed", size=3.0)
+        game_material(rock, "Material_tint")
+        bpy.ops.mt2.make_asset()
+        rock.mt2.name = "packed"
+        self.assertEqual(run(bpy.ops.mt2.export), {"FINISHED"})
+        settings = bpy.context.scene.mt2
+        settings.art_pack_name = "Test Pack"
+        settings.art_pack = True
+        pack = PROJECT / "artpacks/test_models.vrt"
+        self.assertIn('"stone/test_models_packed.vmb"', pack.read_text())
+        self.assertIn('artpack_test_models_displayname "Test Pack"', (PROJECT / "i18n/english/test_models_models.vrt").read_text())
+        settings.art_pack_description = "Rocks for testing"
+        self.assertIn('artpack_test_models_description "Rocks for testing"',
+                      (PROJECT / "i18n/english/test_models_models.vrt").read_text())
+        blade = add_cube("Packed blade", size=0.2)
+        game_material(blade, "Material_tint")
+        bpy.ops.mt2.make_asset()
+        blade.mt2.asset = "weapon"
+        blade.mt2.weapon_category = "test_models_packed"
+        blade.mt2.name = "packed_blade"
+        self.assertEqual(run(bpy.ops.mt2.export), {"FINISHED"})
+        weapons = PROJECT / "artpacks/weapons_test_models_packed.vrt"
+        self.assertFalse(weapons.exists(), "weapon packs are only made when enabled")
+        settings.weapon_packs = True
+        self.assertIn('type "weapons"', weapons.read_text())
+        self.assertNotIn('"test_models_packed"', pack.read_text())
+        settings.art_pack = False
+        self.assertFalse(pack.exists())
+        self.assertTrue(weapons.exists())
+        settings.weapon_packs = False
+        self.assertFalse(weapons.exists())
+
+    def test_vehicle_variant(self):
+        balloon = import_game("vehicles/air/balloon.vmb")
+        self.assertEqual((balloon.mt2.asset, balloon.mt2.vehicle_kind), ("vehicle", "air"))
+        balloon.mt2.name = "red_balloon"
+        balloon.mt2.display_name = "Red Balloon"
+        balloon.mt2.description = "Red and round"
+        plan = pipeline.plan(balloon)
+        self.assertTrue(plan.ok, [f.message for f in plan.findings])
+        definition = records.parse(plan.texts["vehicles/air/test_models_red_balloon.def"])[0]
+        self.assertEqual(definition.prop("modelFile"), "vehicles/air/test_models_red_balloon.vmb")
+        deck = pads.read_pads(definition)[0]
+        self.assertEqual([e.name for e in deck.entrances], ["port", "starboard"])
+        self.assertIn("vehicle_definition_test_models_red_balloon_displayname",
+                      plan.texts["i18n/english/test_models_models.vrt"])
+        self.assertIn('vehicle_definition_test_models_red_balloon_description "Red and round"',
+                      plan.texts["i18n/english/test_models_models.vrt"])
+        self.assertEqual(offered_vehicles(plan.texts["CursorBehaviours.txt"]), ["test_models_red_balloon"])
+
+    def test_gizmo_animation_round_trip(self):
+        chest = import_game("gizmo/container/chest.vmb")
+        self.assertEqual((chest.mt2.asset, chest.mt2.gizmo_dir), ("gizmo", "gizmo/container"))
+        original = animations.read_animations(game.game_data().read("gizmo/container/chest.van"))
+        chest.mt2.name = "chest2"
+        plan = pipeline.plan(chest)
+        self.assertTrue(plan.ok, [f.message for f in plan.findings])
+        variant = records.parse(plan.texts["gizmo/container/test_models_chest2.variant"])[0]
+        self.assertEqual(variant.prop("animationFile"), "gizmo/container/test_models_chest2")
+        written = animations.read_animations(plan.texts["gizmo/container/test_models_chest2.van"])
+        self.assertEqual([a.name for a in written], [a.name for a in original])
+        self.assertEqual(written[0].playback, original[0].playback)
+        for old, new in zip(original[0].timelines, written[0].timelines):
+            self.assertEqual(old.node, new.node)
+            for channel in ("translation", "rotation", "scale"):
+                old_keys, new_keys = getattr(old, channel), getattr(new, channel)
+                if len(old_keys) == len(new_keys):
+                    for (t1, v1), (t2, v2) in zip(old_keys, new_keys):
+                        self.assertAlmostEqual(t1, t2, places=4)
+                        sign = 1 if channel != "rotation" or sum(a * b for a, b in zip(v1, v2)) >= 0 else -1
+                        for a, b in zip(v1, v2):
+                            self.assertAlmostEqual(a, sign * b, delta=1e-3 * max(1.0, abs(a)))
+
+    def test_costume_animations(self):
+        bpy.ops.mt2.import_costume(costume="costumes/knight.costume")
+        root = bpy.context.view_layer.objects.active
+        self.assertEqual(bpy.ops.mt2.import_animations(), {"FINISHED"})
+        plan = pipeline.plan(root)
+        self.assertNotIn("skeletons/humanoid.van", plan.texts)
+        self.assertEqual(bpy.ops.mt2.new_animation(name="wave"), {"FINISHED"})
+        self.assertNotIn("skeletons/humanoid.van", pipeline.plan(root).texts)
+        head = next(o for o in root.children_recursive if o.mt2.role == "BONE" and o.get("mt2_node") == "head")
+        head.keyframe_insert("rotation_quaternion", frame=1)
+        head.rotation_quaternion.x = 0.2
+        head.keyframe_insert("rotation_quaternion", frame=12)
+        written = animations.read_animations(pipeline.plan(root).texts["skeletons/humanoid.van"])
+        self.assertEqual([a.name for a in written], ["wave"])
+        self.assertEqual([t.node for t in written[0].timelines], ["head"])
+        self.assertEqual(len(written[0].timelines[0].rotation), 12)
+
+    def test_dungeon_theme_and_tile(self):
+        self.assertEqual(run(bpy.ops.mt2.new_theme, family="dungeon", source="arid", name="crypt"), {"FINISHED"})
+        theme = PROJECT / "dungeon/themes/testmodelscrypt"
+        self.assertEqual(len([p for p in theme.rglob("*") if p.is_file()]), 62)
+        self.assertTrue((PROJECT / "scenery/tagged/f_prop_small_testmodelscrypt_pot4.vmb").is_file())
+        tile_file = theme / "walls/N/d_testmodelscrypt_N.vmb"
+        bpy.ops.mt2.import_file(filepath=str(tile_file))
+        tile = bpy.context.view_layer.objects.active
+        self.assertEqual((tile.mt2.asset, tile.mt2.dungeon_theme, tile.mt2.shape), ("dungeon_tile", "testmodelscrypt", "N"))
+        original = dungeons.read_sockets((theme / "walls/N/d_testmodelscrypt_N.vrt").read_text())
+        self.assertEqual(len([c for c in tile.children_recursive if c.mt2.role == "SOCKET"]), len(original))
+        plan = pipeline.plan(tile)
+        self.assertTrue(plan.ok, [f.message for f in plan.findings])
+        self.assertEqual(plan.rel, "dungeon/themes/testmodelscrypt/walls/N/d_testmodelscrypt_N.vmb")
+        written = dungeons.read_sockets(plan.texts["dungeon/themes/testmodelscrypt/walls/N/d_testmodelscrypt_N.vrt"])
+        for old, new in zip(original, written):
+            self.assertEqual(old.tags, new.tags)
+            for a, b in zip(old.position, new.position):
+                self.assertAlmostEqual(a, b, places=4)
+            sign = 1 if sum(x * y for x, y in zip(old.orientation, new.orientation)) >= 0 else -1
+            for a, b in zip(old.orientation, new.orientation):
+                self.assertAlmostEqual(a, sign * b, places=4)
+
+    def test_convert_wizard(self):
+        parts = []
+        for x in (0, 3):
+            cube = add_cube(f"Download{x}", size=1.0, location=(x, 0, 5))
+            cube.scale = (2, 2, 2)
+            cube.data.materials.append(textured_material())
+            bpy.ops.object.modifier_add(type="SUBSURF")
+            bpy.ops.object.modifier_apply(modifier="Subdivision")
+            parts.append(cube)
+        for cube in parts:
+            cube.select_set(True)
+        self.assertEqual(bpy.ops.mt2.convert(target="scenery", scenery_type="prop", height=4.0, faces=20,
+                                             colors="BAKE", name="shed"), {"FINISHED"})
+        obj = bpy.context.view_layer.objects.active
+        self.assertEqual(len([o for o in bpy.data.objects if o.type == "MESH"]), 1)
+        self.assertEqual((obj.mt2.asset, obj.mt2.scenery_type, obj.mt2.name), ("scenery", "prop", "shed"))
+        heights = [v.co.z for v in obj.data.vertices]
+        self.assertAlmostEqual(min(heights), 0.0, places=4)
+        self.assertAlmostEqual(max(heights), 4.0, places=4)
+        self.assertTrue(any(m.type == "DECIMATE" for m in obj.modifiers))
+        self.assertEqual(obj.material_slots[0].material.mt2.game_name, "Material_tint")
+        self.assertTrue(pipeline.plan(obj).ok, [f.message for f in pipeline.plan(obj).findings])
+
+    def test_convert_keeps_texture(self):
+        cube = add_cube("Crate download", size=2.0)
+        cube.data.materials.append(textured_material())
+        select_only(cube)
+        self.assertEqual(bpy.ops.mt2.convert(target="scenery", height=2.0, colors="TEXTURE", name="dl_crate"),
+                         {"FINISHED"})
+        self.assertEqual(cube.material_slots[0].material.mt2.game_name, "test_models_dl_crate")
+        self.assertTrue((PROJECT / "textures/test_models_dl_crate.png").is_file())
+        self.assertEqual(pipeline.plan(cube).built.root.fragments[0].format, "PCNT")
+
+    def test_gltf_conversion_matches_blender_export(self):
+        bpy.ops.mesh.primitive_monkey_add(location=(0, 0, 1))
+        monkey = bpy.context.active_object
+        monkey.rotation_euler = (0.3, 0.2, 1.1)
+        game_material(monkey, "Material_tint")
+        bpy.context.scene.mt2.paint_color = (0.8, 0.2, 0.1, 1.0)
+        bpy.ops.mt2.fill_color()
+        bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+        glb = PROJECT / "monkey.glb"
+        bpy.ops.export_scene.gltf(filepath=str(glb), use_selection=True, export_format="GLB")
+        converted = gltf.convert(glb)
+        bpy.ops.mt2.make_asset()
+        monkey.mt2.name = "monkey"
+        exported = pipeline.plan(monkey).built.root
+        def shape(root):
+            points = [v[:3] for f in root.fragments for v in f.vertices]
+            low = [min(p[i] for p in points) for i in range(3)]
+            high = [max(p[i] for p in points) for i in range(3)]
+            centroid = [sum(p[i] for p in points) / len(points) for i in range(3)]
+            return [high[i] - low[i] for i in range(3)] + [centroid[i] - (low[i] + high[i]) / 2 for i in range(3)]
+        for a1, a2 in zip(shape(converted), shape(exported)):
+            self.assertAlmostEqual(a1, a2, delta=0.01)
+        fragment = converted.fragments[0]
+        a, b, c = (fragment.vertices[i] for i in fragment.indices[:3])
+        u = [b[i] - a[i] for i in range(3)]
+        w = [c[i] - a[i] for i in range(3)]
+        cross = (u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0])
+        self.assertLess(sum(x * n for x, n in zip(cross, a[7:10])), 0, "game triangles are clockwise")
+        self.assertAlmostEqual(a[3], 0.8, delta=0.02)
+        self.assertAlmostEqual(a[4], 0.2, delta=0.02)
 
     def test_bake_texture_to_colors(self):
         bpy.ops.mesh.primitive_plane_add(size=2)
@@ -604,6 +878,7 @@ class UI(unittest.TestCase):
         bpy.ops.mt2.make_asset()
         run(bpy.ops.mt2.check)
         self.assertTrue(bpy.context.scene.mt2.findings)
+        bpy.context.scene.mt2.show_notes = True
         message = bpy.context.scene.mt2.findings[0].message
         self.assertTrue(any(message.startswith(text) for kind, text in self.draw_all() if kind == "label" and text))
         other = add_cube("Other", location=(5, 0, 1))

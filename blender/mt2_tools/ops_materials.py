@@ -1,20 +1,19 @@
-import shutil
 from pathlib import Path
 
 import bpy
 from bpy_extras.io_utils import ImportHelper
 
-from . import game, project
+from . import game
 from .game_materials import material_for
-from .mt2model.naming import clean_word, prefixed
-
-TEXTURE_FOLDER = "textures"
-TEXTURE_SUFFIXES = (".png", ".jpg", ".jpeg", ".tga", ".bmp")
+from .mesh_data import color_attribute
+from .textured_materials import TEXTURE_SUFFIXES, write_textured_material
 
 _material_items: list = []
 
 
 def _assign(obj: bpy.types.Object, slot: int, material: bpy.types.Material):
+    if obj.mode != "EDIT":
+        color_attribute(obj.data)
     if not obj.material_slots:
         obj.data.materials.append(material)
     else:
@@ -96,30 +95,17 @@ class MT2_OT_new_textured_material(_MeshOperator, ImportHelper):
         if source.suffix.lower() not in TEXTURE_SUFFIXES or not source.is_file():
             self.report({"ERROR"}, "Pick a PNG, JPG, TGA or BMP image")
             return {"CANCELLED"}
-        name = prefixed(mod_id, clean_word(self.material_name) or clean_word(source.stem))
-        texture_rel = f"{TEXTURE_FOLDER}/{name}{source.suffix.lower()}"
-        material_rel = f"materials/{name}.mat"
-        if (folder / material_rel).exists():
-            self.report({"ERROR"}, f"{material_rel} already exists; pick another name")
+        try:
+            name = write_textured_material(folder, mod_id, self.material_name or source.stem, source.read_bytes(),
+                                           source.suffix)
+        except FileExistsError as error:
+            self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
-        (folder / TEXTURE_FOLDER).mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, folder / texture_rel)
-        project.write_text(folder, material_rel, textured_material(texture_rel))
-        game.forget()
         obj = context.active_object
         _assign(obj, obj.active_material_index, material_for(name))
-        self.report({"INFO"}, f"Wrote {material_rel} and {texture_rel}")
+        self.report({"INFO"}, f"Wrote materials/{name}.mat and its texture")
 
         return {"FINISHED"}
-
-
-def textured_material(texture_rel: str) -> str:
-    return ("Material {\n"
-            "\tcolor 1.0 1.0 1.0 1.0\n"
-            "\tmode lit\n"
-            f"\ttexture \"{texture_rel}\"\n"
-            "\tshader \"tint_v.glsl\" \"tint_f.glsl\"\n"
-            "}\n")
 
 
 CLASSES = (MT2_OT_setup_material, MT2_OT_pick_game_material, MT2_OT_new_textured_material)

@@ -23,7 +23,7 @@ class Built:
 
 
 GEOMETRY_TYPES = {"MESH", "CURVE", "SURFACE", "FONT", "META"}
-SKIPPED_ROLES = {"REFERENCE", "PREVIEW"}
+SKIPPED_ROLES = {"REFERENCE", "PREVIEW", "PAD", "ENTRANCE", "BONE", "SOCKET"}
 ROLE_MATERIAL = {"LIGHT": "light", "COLLISION": "collision", "NAVMESH": "navmesh"}
 DEFAULT_MATERIAL = {"vertex": "Material_tint", "costume": "costume", "any": "Material_tint"}
 DEGENERATE_RATIO = 1e-9
@@ -37,18 +37,26 @@ def build(root_obj: bpy.types.Object, asset: AssetType, catalog: MaterialCatalog
         return built
     stored = root_obj.get("mt2_trs")
     if stored:
-        origin = root_obj.matrix_world.inverted()
         built.root.translation = tuple(stored[0:3])
         built.root.rotation = tuple(stored[3:7])
         built.root.scale = tuple(stored[7:10])
-    else:
-        origin = Matrix.Translation(-root_obj.matrix_world.translation)
+    origin = export_origin(root_obj)
     triangles: dict[tuple[str, str], list] = {}
     for obj in _members(root_obj):
         _collect(obj, origin @ obj.matrix_world, asset, catalog, depsgraph, built, triangles)
     built.root.lods = [_fragments(triangles)]
 
     return built
+
+
+def export_origin(root_obj: bpy.types.Object) -> Matrix:
+    bone = root_obj.parent if root_obj.parent is not None and root_obj.parent.mt2.role == "BONE" else None
+    if bone is not None:
+        return bone.matrix_world.inverted()
+    if root_obj.get("mt2_trs"):
+        return root_obj.matrix_world.inverted()
+
+    return Matrix.Translation(-root_obj.matrix_world.translation)
 
 
 def asset_root(obj: bpy.types.Object | None) -> bpy.types.Object | None:
