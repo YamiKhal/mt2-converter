@@ -11,9 +11,10 @@ from .mt2model.animations import read_animations
 from .mt2model.dungeons import SHAPES, read_sockets
 from .mt2model.obstruction import obs_file_name, read_obstruction
 from .mt2model.pads import read_pads
-from .mt2model.variants import variant_for_model
+from .mt2model.variants import read_creature, variant_for_model
 from .anim_objects import import_animations
 from .costume_objects import import_costume
+from .creature_spot import create_spot, is_flight_point
 from .pad_objects import create_pads
 from .socket_objects import create_sockets
 from .settings import building_dir_items, gizmo_dir_items
@@ -55,6 +56,8 @@ def import_bytes(context, raw: bytes, rel: str, collection=None) -> bpy.types.Ob
         if obj.mt2.asset == "building":
             obj.mt2.source_variant = variant_for_model(data, rel) or ""
             _import_pads(obj, data, obj.mt2.source_variant, collection)
+            if is_flight_point(obj) and obj.mt2.source_variant:
+                _import_creature(obj, data, obj.mt2.source_variant, collection)
         if obj.mt2.asset == "gizmo":
             obj.mt2.source_variant = variant_for_model(data, rel) or ""
             _import_gizmo(obj, data, collection)
@@ -118,6 +121,15 @@ def _import_gizmo(obj, data, collection):
     animation_file = f"{owner.prop('animationFile') or ''}.van"
     if data.exists(animation_file):
         import_animations(obj, read_animations(data.read(animation_file)))
+
+
+def _import_creature(obj, data, variant_rel: str, collection):
+    creature = read_creature(data.read(variant_rel))
+    if creature is None:
+        return
+    obj.mt2.creature = creature.costume
+    obj.mt2.creature_animation = creature.animation
+    create_spot(obj, creature.offset or (0.0, 0.0, 0.0), creature.rotation or (0.0, 0.0, 0.0, 1.0), collection)
 
 
 def _import_pads(obj, data, variant_rel: str, collection):

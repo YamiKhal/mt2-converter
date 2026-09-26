@@ -1,7 +1,7 @@
 import bpy
 
 from . import (guides, ops_animation, ops_colors, ops_convert, ops_export, ops_helpers, ops_import, ops_materials,
-               ops_paint, ops_palette, ops_select, ops_theme, preferences, settings, ui)
+               ops_paint, ops_palette, ops_rig, ops_select, ops_theme, preferences, settings, ui)
 
 CLASSES = (
     *settings.CLASSES,
@@ -15,6 +15,7 @@ CLASSES = (
     *ops_helpers.CLASSES,
     *ops_materials.CLASSES,
     *ops_animation.CLASSES,
+    *ops_rig.CLASSES,
     *ops_theme.CLASSES,
     *ops_convert.CLASSES,
     *ui.CLASSES,

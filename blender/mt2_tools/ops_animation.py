@@ -4,7 +4,7 @@ from . import game
 from .anim_objects import NAME_KEY, import_animations, new_action, owned_actions
 from .convert_out import asset_root
 from .costume_objects import ACTOR_KEY
-from .mt2model.animations import read_animations
+from .rig_objects import rig_animations
 
 ANIMATED_ASSETS = ("costume", "gizmo")
 
@@ -32,14 +32,16 @@ class MT2_OT_import_animations(_AnimatedOperator):
 
     def execute(self, context):
         root = asset_root(context.active_object)
-        data = game.game_data()
         actor = root.get(ACTOR_KEY, "humanoid")
-        rel = next((r for r in (f"{actor}.van", f"skeletons/{actor}.van") if data and data.exists(r)), None)
-        if rel is None:
+        if game.game_data() is None:
+            self.report({"ERROR"}, "Set the game folder in the add-on preferences first")
+            return {"CANCELLED"}
+        found = rig_animations(actor)
+        if not found:
             self.report({"ERROR"}, f"No animations found for '{actor}'")
             return {"CANCELLED"}
         loaded = {a.get(NAME_KEY) for a in owned_actions(root)}
-        animations = [a for a in read_animations(data.read(rel)) if a.name not in loaded]
+        animations = [a for a in found if a.name not in loaded]
         actions = import_animations(root, animations)
         if actions:
             root.mt2.animation = actions[0].name

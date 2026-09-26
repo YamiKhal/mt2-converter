@@ -38,10 +38,12 @@ def read_costume(text: bytes | str) -> CostumeFile:
     return parsed
 
 
-def write_costume(template: bytes | str, name: str, parts: list[PartPlacement]) -> str:
+def write_costume(template: bytes | str, name: str, parts: list[PartPlacement], actor: str | None = None) -> str:
     parsed = records.parse(template)
     costume = _costume_record(parsed)
     costume.set_prop("name", name)
+    if actor is not None:
+        costume.set_prop("actorName", actor)
     by_bone = {p.bone: p for p in parts}
     container = costume.child("costumePart")
     for descriptor in _descriptors(costume):

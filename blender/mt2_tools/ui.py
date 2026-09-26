@@ -4,9 +4,10 @@ import textwrap
 import bpy
 
 from . import game, pipeline
-from .anim_objects import owned_actions
+from .anim_objects import REST_POSE, owned_actions
 from .convert_out import asset_root
-from .costume_objects import costume_root
+from .costume_objects import costume_root, is_loose_part
+from .creature_spot import is_flight_point
 from .mt2model.naming import target_problems
 
 LEVEL_ICONS = {"error": "ERROR", "warning": "INFO", "info": "CHECKMARK"}
@@ -23,7 +24,7 @@ ASSET_FIELDS = {
     "wall": ("theme", "wall_piece"),
     "bridge": ("theme", "bridge_piece"),
     "dungeon_tile": ("dungeon_theme", "tile_kind", "shape"),
-    "costume": ("display_name",),
+    "costume": ("display_name", "rig", "creature_type"),
     "costume_part": ("costume_set", "bone", "normalise"),
     "raw": ("raw_path",),
 }
@@ -77,7 +78,7 @@ class MT2_PT_asset(_Panel):
         root = asset_root(context.active_object)
         if not settings.mod_id or game.project_dir() is None:
             layout.operator("mt2.setup", icon="ERROR")
-        if root is None:
+        if root is None or is_loose_part(context.active_object):
             layout.operator("mt2.make_asset", icon="ADD")
             return
         _split(layout)
@@ -106,6 +107,8 @@ def _fields(root) -> list[str]:
         fields = ["normalise"]
     if s.asset == "weapon" and not _is_vanilla_category(s.weapon_category):
         fields.append("display_name")
+    if is_flight_point(root):
+        fields += ["creature", "creature_animation"]
 
     return fields
 
@@ -191,7 +194,7 @@ class MT2_PT_animation(_Panel):
         row.operator("mt2.new_animation", text="" if has_actions else "New animation", icon="ADD")
         if root.mt2.asset == "costume":
             row.operator("mt2.import_animations", text="", icon="IMPORT")
-        if has_actions:
+        if has_actions and root.mt2.animation != REST_POSE:
             layout.prop(root.mt2, "playback", text="")
 
 
@@ -291,6 +294,12 @@ class MT2_PT_helpers(_Panel):
             row.operator("mt2.add_entrance", icon="CURVE_PATH")
         if asset == "dungeon_tile":
             column.operator("mt2.add_socket", icon="EMPTY_SINGLE_ARROW")
+        if costume_root(obj) is not None and asset != "costume_part":
+            row = column.row(align=True)
+            row.operator("mt2.add_bone", icon="BONE_DATA")
+            row.operator("mt2.set_rest_pose", icon="ARMATURE_DATA")
+        if root is not None and is_flight_point(root):
+            column.operator("mt2.add_creature_spot", icon="EMPTY_ARROWS")
         if asset in ("scenery", "building"):
             column.operator("mt2.footprint_preview", icon="SNAP_FACE")
         if obj is not None and obj is not root and obj.mt2.role != "NONE":

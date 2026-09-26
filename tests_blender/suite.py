@@ -706,6 +706,165 @@ class NewModels(unittest.TestCase):
         self.assertEqual([t.node for t in written[0].timelines], ["head"])
         self.assertEqual(len(written[0].timelines[0].rotation), 12)
 
+    def costume(self, rel="costumes/knight.costume"):
+        bpy.ops.mt2.import_costume(costume=rel)
+
+        return bpy.context.view_layer.objects.active
+
+    def bone(self, root, name):
+        return next(o for o in root.children_recursive if o.mt2.role == "BONE" and o.get("mt2_node") == name)
+
+    def test_new_rig_from_a_costume(self):
+        root = self.costume()
+        self.assertEqual(root.mt2.rig, "humanoid")
+        root.mt2.rig = "biped"
+        plan = pipeline.plan(root)
+        self.assertTrue(plan.ok, [f.message for f in plan.findings])
+        self.assertEqual(costume_files.read_costume(plan.texts["costumes/test_models_knight.costume"]).actor,
+                         "test_models_biped")
+        skeleton = model.read_model(plan.files["skeletons/test_models_biped.vmb"])
+        humanoid = model.read_model(game.game_data().read("skeletons/humanoid.vmb"))
+        new = {n.name: (d, n.translation) for n, d in skeleton.walk()}
+        old = {n.name: (d, n.translation) for n, d in humanoid.walk()}
+        self.assertEqual({k: v[0] for k, v in new.items()}, {k: v[0] for k, v in old.items()})
+        for name, (_, translation) in old.items():
+            for x, y in zip(new[name][1], translation):
+                self.assertAlmostEqual(x, y, places=4, msg=name)
+        written = animations.read_animations(plan.texts["skeletons/test_models_biped.van"])
+        self.assertEqual(len(written), 48)
+        select_only(self.bone(root, "torso"))
+        bpy.context.scene.cursor.location = (0.5, 0.0, 1.5)
+        self.assertEqual(bpy.ops.mt2.add_bone(name="wingleft"), {"FINISHED"})
+        wing = bpy.context.view_layer.objects.active
+        self.assertAlmostEqual(wing.matrix_world.translation.x, 0.5, places=4)
+        part = add_cube("Wing", size=0.3, location=(0.6, 0.0, 1.5))
+        game_material(part, "costume")
+        part.parent = wing
+        part.matrix_parent_inverse = wing.matrix_world.inverted()
+        self.assertTrue(module("costume_objects").is_loose_part(part))
+        self.assertTrue(any("Make asset" in f.message for f in pipeline.plan(root).findings))
+        bpy.ops.mt2.make_asset()
+        self.assertEqual((part.mt2.asset, part.mt2.bone), ("costume_part", "wingleft"))
+        plan = pipeline.plan(root)
+        self.assertTrue(plan.ok, [f.message for f in plan.findings])
+        names = [n.name for n, _ in model.read_model(plan.files["skeletons/test_models_biped.vmb"]).walk()]
+        self.assertIn("wingleft", names)
+        parts = {p.bone: p for p in costume_files.read_costume(plan.texts["costumes/test_models_knight.costume"]).parts}
+        self.assertEqual(parts["wingleft"].model_file, "costumes/test_models_knight/wingleft.vmb")
+        select_only(root)
+        self.assertEqual(run(bpy.ops.mt2.export), {"FINISHED"}, [f.message for f in bpy.context.scene.mt2.findings])
+        self.assertTrue((PROJECT / "skeletons/test_models_biped.vmb").is_file())
+        self.assertTrue((PROJECT / "skeletons/test_models_biped.van").is_file())
+
+    def test_mod_changes_to_a_game_rig_add_to_its_animations(self):
+        nod = animations.Animation("idle", "Loop", [animations.Timeline("head", rotation=[(0.0, (0.0, 0.0, 0.0, 1.0))])])
+        partial = PROJECT / "skeletons/humanoid.van"
+        partial.parent.mkdir(parents=True, exist_ok=True)
+        partial.write_text(animations.write_animations([nod]))
+        try:
+            root = self.costume()
+            self.assertEqual(bpy.ops.mt2.import_animations(), {"FINISHED"})
+            self.assertEqual(len([a for a in bpy.data.actions if a.get("mt2_owner") == root]), 48)
+            root.mt2.rig = "biped"
+            written = animations.read_animations(pipeline.plan(root).texts["skeletons/test_models_biped.van"])
+            self.assertEqual(len(written), 48)
+            idle = next(a for a in written if a.name == "idle")
+            self.assertEqual(([t.node for t in idle.timelines], idle.playback), (["head"], "Loop"))
+            root.mt2.rig = "humanoid"
+            run_action = next(a for a in bpy.data.actions if a.get("mt2_owner") == root and a.get("mt2_name") == "run")
+            run_action["mt2_playback"] = "Once"
+            written = animations.read_animations(pipeline.plan(root).texts["skeletons/humanoid.van"])
+            self.assertEqual([a.name for a in written], ["idle", "run"])
+        finally:
+            partial.unlink()
+
+    def test_set_rest_pose_moves_the_animations_along(self):
+        root = self.costume()
+        root.mt2.rig = "biped"
+        before = next(t for t in animations.read_animations(game.game_data().read("skeletons/humanoid.van"))
+                      if t.name == "idle")
+        head_before = next(t for t in before.timelines if t.node == "head").translation[0][1]
+        head = self.bone(root, "head")
+        head.location.z += 0.1
+        findings = [f.message for f in pipeline.plan(root).findings]
+        self.assertTrue(any("Set rest pose" in m for m in findings), findings)
+        select_only(head)
+        self.assertEqual(bpy.ops.mt2.set_rest_pose(), {"FINISHED"})
+        self.assertEqual(len([a for a in bpy.data.actions if a.get("mt2_owner") == root]), 48)
+        self.assertEqual(root.mt2.animation, "MT2_REST_POSE")
+        self.assertIsNone(head.animation_data.action)
+        plan = pipeline.plan(root)
+        self.assertFalse(any("Set rest pose" in f.message for f in plan.findings))
+        written = next(a for a in animations.read_animations(plan.texts["skeletons/test_models_biped.van"])
+                       if a.name == "idle")
+        head_after = next(t for t in written.timelines if t.node == "head").translation[0][1]
+        self.assertAlmostEqual(head_after[1] - head_before[1], 0.1, places=3)
+        skeleton = model.read_model(plan.files["skeletons/test_models_biped.vmb"])
+        rest = next(n for n, _ in skeleton.walk() if n.name == "head")
+        self.assertAlmostEqual(rest.translation[1], 0.32 + 0.1, delta=0.01)
+        idle = next(a for a in bpy.data.actions if a.get("mt2_owner") == root and a.get("mt2_name") == "idle")
+        root.mt2.animation = idle.name
+        self.assertEqual(head.animation_data.action, idle)
+
+    def test_game_rigs_stay_unless_bones_are_added(self):
+        root = self.costume()
+        plan = pipeline.plan(root)
+        self.assertFalse(plan.files)
+        root.mt2.rig = "quadruped"
+        self.assertFalse(pipeline.plan(root).ok)
+        root.mt2.rig = "humanoid"
+        select_only(root)
+        self.assertEqual(run(bpy.ops.mt2.set_rest_pose), {"CANCELLED"})
+        select_only(self.bone(root, "head"))
+        bpy.ops.mt2.add_bone(name="jaw")
+        plan = pipeline.plan(root)
+        self.assertIn("skeletons/humanoid.vmb", plan.files)
+        self.assertTrue(any("every humanoid" in f.message for f in plan.findings))
+
+    def test_creature_type(self):
+        root = self.costume()
+        root.mt2.creature_type = "monster"
+        root.mt2.display_name = "Tin Knight"
+        plan = pipeline.plan(root)
+        definition = records.parse(plan.texts["default/monsters/test_models_knight.vrt"])[0].child("def")
+        self.assertEqual((definition.prop("name"), definition.prop("costumeName")), ("Tin Knight", "test_models_knight"))
+
+    def test_mount_rig_needs_a_torso(self):
+        root = self.costume("costumes/raven.costume")
+        self.assertEqual(root.mt2.rig, "bird")
+        root.mt2.rig = "griffin"
+        plan = pipeline.plan(root)
+        self.assertTrue(plan.ok, [f.message for f in plan.findings])
+        self.assertEqual([a.name for a in animations.read_animations(plan.texts["skeletons/test_models_griffin.van"])],
+                         ["flying", "idle"])
+        self.assertEqual(plan.parts, [], "a mount in the game's colors can share the game's part files")
+        root.mt2.palette[0].color = (1.0, 0.0, 0.0, 1.0)
+        plan = pipeline.plan(root)
+        parts = [o for o in root.children_recursive if o.mt2.asset == "costume_part"]
+        self.assertEqual(sorted(p.rel for p in plan.parts),
+                         sorted(f"costumes/test_models_raven/{o.mt2.bone}.vmb" for o in parts))
+        placed = costume_files.read_costume(plan.texts["costumes/test_models_raven.costume"]).parts
+        self.assertTrue(all(p.model_file.startswith("costumes/test_models_raven/") for p in placed if p.model_file))
+        torso = self.bone(root, "torso")
+        torso["mt2_node"] = "body"
+        self.assertTrue(any("torso" in f.message and f.level == "error" for f in pipeline.plan(root).findings))
+
+    def test_flight_point_creature(self):
+        roost = import_game("buildings/flightpoint/owl_roost.vmb")
+        self.assertEqual((roost.mt2.creature, roost.mt2.creature_animation), ("owl", "idle"))
+        spot = next(c for c in roost.children if c.mt2.role == "CREATURE")
+        self.assertAlmostEqual(spot.matrix_world.translation.z, 5.0, places=4)
+        roost.mt2.name = "griffin_roost"
+        roost.mt2.creature = "griffin"
+        spot.location.z += 1.0
+        plan = pipeline.plan(roost)
+        variant = records.parse(plan.texts["buildings/flightpoint/test_models_griffin_roost.variant"])[0]
+        self.assertEqual(variant.prop("actor"), "test_models_griffin")
+        self.assertAlmostEqual(variant.child("actorOffset").floats()[1], 6.0, places=4)
+        rotation = variant.child("actorRotation").floats()
+        self.assertAlmostEqual(abs(rotation[1]), 1.0, places=4)
+        self.assertTrue(any("griffin" in f.message for f in plan.findings))
+
     def test_dungeon_theme_and_tile(self):
         self.assertEqual(run(bpy.ops.mt2.new_theme, family="dungeon", source="arid", name="crypt"), {"FINISHED"})
         theme = PROJECT / "dungeon/themes/testmodelscrypt"

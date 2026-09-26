@@ -43,7 +43,19 @@ def record_export(project: Path, rel: str, object_name: str):
     (project / EXPORT_LOG).write_text(json.dumps(log, indent=4, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def read_text(project: Path | None, rel: str) -> str:
+    path = project / rel if project else None
+
+    return path.read_text(encoding="utf-8") if path and path.is_file() else ""
+
+
 def write_text(project: Path, rel: str, text: str):
     path = project / rel
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8", newline="\n")
+
+
+def write_bytes(project: Path, rel: str, data: bytes):
+    path = project / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)

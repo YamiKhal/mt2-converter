@@ -10,9 +10,9 @@ from .mt2model.axes import AXES_VERSION
 from .mt2model.costume import normalise
 from .mt2model.footprint import is_convex
 from .mt2model.pads import pad_problems
-from .anim_objects import export_animation, is_changed, owned_actions
-from .costume_objects import (ACTOR_KEY, TEMPLATE_KEY, costume_root, is_unchanged, moved_bones, parts_of,
-                              placement)
+from .anim_objects import export_animation, owned_actions
+from .costume_objects import TEMPLATE_KEY, costume_root, is_unchanged, loose_parts, parts_of, placement
+from .creature_spot import FLIGHT_POINTS
 from .mt2model.animations import write_animations
 from .mt2model.dungeons import write_sockets
 from .socket_objects import collect_sockets
@@ -24,6 +24,7 @@ from .mt2model.obstruction import obs_file_name, write_obstruction
 from .mt2model.validate import Finding, has_errors, validate
 from .mt2model.vehicle_tool import TOOL_FILE, offer_vehicle
 from .mt2model.variants import building_kinds, derive_variant, display_name_key, variant_files
+from .rig_plan import needs_own_parts, plan_creature_type, plan_flight_creature, plan_rig
 
 
 @dataclass
@@ -33,6 +34,7 @@ class Plan:
     built: convert_out.Built | None = None
     findings: list[Finding] = field(default_factory=list)
     texts: dict[str, str] = field(default_factory=dict)
+    files: dict[str, bytes] = field(default_factory=dict)
     parts: list["Plan"] = field(default_factory=list)
 
     @property
@@ -140,7 +142,10 @@ def _plan_variant(result: Plan, target: ExportTarget):
         return
     stem = prefixed(target.mod_id, target.name)
     pads = collect_pads(result.root_obj) if has_own_pads(result.root_obj) else None
-    result.texts[f"{target.building_dir}/{stem}.variant"] = derive_variant(data.read(template), stem, result.rel, pads)
+    variant = derive_variant(data.read(template), stem, result.rel, pads)
+    if target.building_dir == FLIGHT_POINTS:
+        variant = plan_flight_creature(result, target, variant)
+    result.texts[f"{target.building_dir}/{stem}.variant"] = variant
     if pads is not None:
         result.findings += [Finding(level, message) for level, message in pad_problems(pads)]
     display = result.root_obj.mt2.display_name
@@ -238,12 +243,16 @@ def _plan_costume(result: Plan, target: ExportTarget):
         return
     stem = prefixed(target.mod_id, target.name)
     placements = []
+    own_parts = needs_own_parts(result.root_obj)
+    for loose in loose_parts(result.root_obj):
+        result.findings.append(Finding("warning", f"'{loose.name}' isn't a costume part yet, so it's left out; "
+                                                  f"select it and use Make asset", loose.name))
     for part in parts_of(result.root_obj):
         if part.parent is None or part.parent.mt2.role != "BONE":
             result.findings.append(Finding("warning", f"'{part.name}' isn't parented to a bone, so it's left out",
                                            part.name))
             continue
-        if is_unchanged(part):
+        if is_unchanged(part) and not own_parts:
             relative = part.parent.matrix_world.inverted() @ part.matrix_world
             placements.append(placement(part, part.mt2.source_path, relative.to_scale().x))
             continue
@@ -253,15 +262,9 @@ def _plan_costume(result: Plan, target: ExportTarget):
                             for f in part_plan.findings if f.level != "info"]
         if part_plan.built is not None:
             placements.append(placement(part, part_plan.rel, part.mt2.model_scale if part.mt2.normalise else 1.0))
-    for bone in moved_bones(result.root_obj):
-        result.findings.append(Finding("warning", f"the bone '{bone.name}' was moved, which the game can't store; "
-                                                  f"move its parts instead", bone.name))
-    result.texts[result.rel] = write_costume(data.read(template), stem, placements)
-    changed = [export_animation(result.root_obj, a) for a in owned_actions(result.root_obj) if is_changed(a)]
-    changed = [a for a in changed if a.timelines]
-    if changed:
-        actor = result.root_obj.get(ACTOR_KEY, "humanoid")
-        result.texts[f"skeletons/{actor}.van"] = write_animations(changed)
+    rig = plan_rig(result, target)
+    result.texts[result.rel] = write_costume(data.read(template), stem, placements, actor=rig)
+    plan_creature_type(result, target, stem, rig)
     result.texts[f"costumes/{stem}.defaults"] = write_defaults([tuple(c.color) for c in result.root_obj.mt2.palette])
     _plan_display_name(result, target, f"costume_{stem}")
 
@@ -274,10 +277,7 @@ def _default_template(directory: str) -> str | None:
 
 
 def _read_project_text(rel: str) -> str:
-    folder = game.project_dir()
-    path = folder / rel if folder else None
-
-    return path.read_text(encoding="utf-8") if path and path.is_file() else ""
+    return project.read_text(game.project_dir(), rel)
 
 
 def write(result: Plan) -> list[str]:
@@ -288,12 +288,14 @@ def write(result: Plan) -> list[str]:
         written.append(result.rel)
     for rel, text in result.texts.items():
         project.write_text(folder, rel, text)
+    for rel, data in result.files.items():
+        project.write_bytes(folder, rel, data)
     project.record_export(folder, result.rel, result.root_obj.name)
     result.root_obj.mt2.exported_path = result.rel
     written += write_art_pack(folder)
     game.forget()
 
-    return written + [rel for rel in result.texts if rel not in written]
+    return written + [rel for rel in [*result.texts, *result.files] if rel not in written]
 
 
 def write_art_pack(folder) -> list[str]:

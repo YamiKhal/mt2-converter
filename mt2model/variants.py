@@ -62,9 +62,44 @@ def derive_variant(source_text: bytes | str, name: str, model_rel: str, pads: li
     return records.render(parsed)
 
 
+@dataclass(frozen=True)
+class Creature:
+    costume: str
+    animation: str = "idle"
+    offset: tuple[float, float, float] | None = None
+    rotation: tuple[float, float, float, float] | None = None
+
+
+def read_creature(variant_text: bytes | str) -> Creature | None:
+    variant = _variant_record(variant_text)
+    if variant is None or not variant.prop("actor"):
+        return None
+    offset = variant.child("actorOffset")
+    rotation = variant.child("actorRotation")
+
+    return Creature(variant.prop("actor"), variant.prop("actorAnimation") or "idle",
+                    tuple(offset.floats()[:3]) if offset and len(offset.floats()) >= 3 else None,
+                    tuple(rotation.floats()[:4]) if rotation and len(rotation.floats()) >= 4 else None)
+
+
+def set_creature(variant_text: bytes | str, creature: Creature) -> str:
+    parsed = records.parse(variant_text)
+    variant = next((r for r in parsed if r.prop("modelFile")), None)
+    if variant is None:
+        raise ValueError("the variant has no modelFile")
+    variant.set_prop("actor", creature.costume)
+    variant.set_prop("actorAnimation", creature.animation)
+    if creature.offset is not None:
+        variant.set_prop("actorOffset", *creature.offset, quoted=False)
+    if creature.rotation is not None:
+        variant.set_prop("actorRotation", *creature.rotation, quoted=False)
+
+    return records.render(parsed)
+
+
 def display_name_key(kind_key: str, variant_name: str) -> str:
     return f"building_variant_{kind_key}_{variant_name}_displayname"
 
 
-def _variant_record(text: bytes) -> records.Record | None:
+def _variant_record(text: bytes | str) -> records.Record | None:
     return next((r for r in records.parse(text) if r.prop("modelFile")), None)

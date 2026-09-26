@@ -1,7 +1,7 @@
 import bpy
 
 from . import game
-from .anim_objects import NAME_KEY, PLAYBACK_KEY, assign, owned_actions
+from .anim_objects import NAME_KEY, PLAYBACK_KEY, REST_POSE, assign, owned_actions, show_rest_pose
 from .mt2model.animations import PLAYBACK_TYPES
 from .mt2model.dungeons import SHAPES
 from .mt2model.assets import ASSET_TYPES, MODULAR_SLOTS, PLACEABLE_SCENERY_TYPES, TAG_KINDS, TAG_PLACES
@@ -18,6 +18,7 @@ ROLES = (
     ("ENTRANCE", "Entrance", "A line NPCs walk along, from outside the building to its pad"),
     ("SOCKET", "Prop socket", "Dungeon tiles: a spot where the dungeon places a prop whose tags match"),
     ("BONE", "Bone", "A skeleton bone of a costume; parts parented to it follow it"),
+    ("CREATURE", "Creature spot", "Flight points: where the creature stands and which way it faces"),
     ("REFERENCE", "Reference", "A vanilla model for scale; never exported"),
     ("PREVIEW", "Preview", "A helper drawn by the add-on; never exported"),
 )
@@ -47,12 +48,18 @@ def gizmo_dir_items(self=None, context=None):
 def animation_items(self, context):
     _animation_items.clear()
     owner = self.id_data
-    _animation_items.extend((a.name, a.get(NAME_KEY, a.name), "") for a in owned_actions(owner))
+    actions = owned_actions(owner)
+    if actions and owner.mt2.asset == "costume":
+        _animation_items.append((REST_POSE, "Rest pose", "The bones without animation, as the rig stores them"))
+    _animation_items.extend((a.name, a.get(NAME_KEY, a.name), "") for a in actions)
 
     return _animation_items or [("", "No animations", "")]
 
 
 def _animation_changed(self, context):
+    if self.animation == REST_POSE:
+        show_rest_pose(self.id_data)
+        return
     action = bpy.data.actions.get(self.animation)
     if action is not None:
         assign(self.id_data, action)
@@ -247,6 +254,26 @@ class MT2_ObjectSettings(bpy.types.PropertyGroup):
     display_name: bpy.props.StringProperty(
         name="Display name", update=_forget_findings,
         description="The name players see for this building, vehicle, costume or new weapon category",
+    )
+    rig: bpy.props.StringProperty(
+        name="Rig", update=_forget_findings,
+        description=("The skeleton the costume moves with. Keep a game rig's name to use it, or type a new name "
+                     "to make your own rig from this costume's bones and animations"),
+    )
+    creature_type: bpy.props.EnumProperty(
+        name="Creature type", update=_forget_findings, default="none",
+        description=("Also add a new kind of monster, NPC, hero class or dungeon boss wearing this costume. "
+                     "The game picks kinds at random among those not in use yet"),
+        items=(("none", "None", "Only the costume"), ("monster", "Monster", ""), ("npc", "NPC", ""),
+               ("class", "Hero class", ""), ("dungeon_boss", "Dungeon boss", "")),
+    )
+    creature: bpy.props.StringProperty(
+        name="Creature", update=_forget_findings,
+        description="The costume that stands on the roost and carries heroes, such as raven or one of your costumes",
+    )
+    creature_animation: bpy.props.StringProperty(
+        name="Creature animation", default="idle", update=_forget_findings,
+        description="The animation the creature plays on the roost",
     )
     raw_path: bpy.props.StringProperty(
         name="Game path", description="Relative path, e.g. scenery/stone/my_rock.vmb", update=_forget_findings,

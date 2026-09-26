@@ -5,6 +5,7 @@ from mathutils import Matrix, Vector
 
 from . import convert_out, game, shading
 from .convert_out import asset_root
+from .creature_spot import create_spot, is_flight_point, spot_of
 from .mt2model.assets import asset_type
 from .mt2model.axes import swap_ground
 from .mt2model.costume import read_defaults
@@ -157,6 +158,28 @@ def _select(context, obj):
     context.view_layer.objects.active = obj
 
 
+class MT2_OT_add_creature_spot(bpy.types.Operator):
+    bl_idname = "mt2.add_creature_spot"
+    bl_label = "Add creature spot"
+    bl_description = "Add where the flight point's creature stands, at the 3D cursor. Rotate it to turn the creature"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        root = asset_root(context.active_object)
+
+        return root is not None and is_flight_point(root) and spot_of(root) is None
+
+    def execute(self, context):
+        root = asset_root(context.active_object)
+        context.view_layer.update()
+        spot = create_spot(root, (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0), context.collection)
+        spot.location = spot.parent.matrix_world.inverted() @ context.scene.cursor.location
+        _select(context, spot)
+
+        return {"FINISHED"}
+
+
 class MT2_OT_add_socket(bpy.types.Operator):
     bl_idname = "mt2.add_socket"
     bl_label = "Add socket"
@@ -253,5 +276,5 @@ class MT2_OT_palette_preview(bpy.types.Operator):
 
 
 CLASSES = (MT2_OT_make_asset, MT2_OT_add_light, MT2_OT_add_obstruction, MT2_OT_add_pad, MT2_OT_add_entrance,
-           MT2_OT_add_socket, MT2_OT_footprint_preview,
+           MT2_OT_add_creature_spot, MT2_OT_add_socket, MT2_OT_footprint_preview,
            MT2_OT_palette_preview)

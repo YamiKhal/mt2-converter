@@ -30,13 +30,14 @@ def import_costume(context, costume_rel: str) -> bpy.types.Object:
     root.mt2.name = stem
     root[TEMPLATE_KEY] = costume_rel
     root[ACTOR_KEY] = costume.actor
+    root.mt2.rig = costume.actor
     skeleton = convert_in.import_model(model.read_model(data.read(_skeleton_path(costume.actor))),
                                        f"{stem} skeleton", game.catalog(), collection)
     skeleton.parent = root
     for obj in [skeleton, *skeleton.children_recursive]:
         obj.mt2.role = "BONE"
         obj.empty_display_size = 0.05
-        obj[REST_KEY] = [x for row in obj.matrix_basis for x in row]
+        set_rest(obj, obj.matrix_basis)
     bones = bone_objects(root)
     for part in costume.parts:
         if part.bone in bones:
@@ -105,6 +106,15 @@ def parts_of(root: bpy.types.Object) -> list[bpy.types.Object]:
     return [o for o in root.children_recursive if o.mt2.is_asset and o.mt2.asset == "costume_part"]
 
 
+def is_loose_part(obj: bpy.types.Object | None) -> bool:
+    return (obj is not None and obj.type == "MESH" and not obj.mt2.is_asset and obj.mt2.role == "NONE"
+            and obj.parent is not None and obj.parent.mt2.role == "BONE")
+
+
+def loose_parts(root: bpy.types.Object) -> list[bpy.types.Object]:
+    return [o for o in root.children_recursive if is_loose_part(o)]
+
+
 def placement(part: bpy.types.Object, model_file: str, extent: float) -> PartPlacement:
     bone = part.parent
     offset = bone.matrix_parent_inverse
@@ -114,16 +124,16 @@ def placement(part: bpy.types.Object, model_file: str, extent: float) -> PartPla
                          tuple(float(x) for x in swap_scale(offset.to_scale())))
 
 
-def moved_bones(root: bpy.types.Object) -> list[bpy.types.Object]:
-    moved = []
-    for bone in bone_objects(root).values():
-        animated = bone.animation_data is not None and bone.animation_data.action is not None
-        if REST_KEY in bone and not animated:
-            rest = Matrix([bone[REST_KEY][i:i + 4] for i in range(0, 16, 4)])
-            if any(abs(a - b) > 1e-4 for row_a, row_b in zip(rest, bone.matrix_basis) for a, b in zip(row_a, row_b)):
-                moved.append(bone)
+def rest_matrix(bone: bpy.types.Object) -> Matrix:
+    stored = bone.get(REST_KEY)
+    if stored is None:
+        return bone.matrix_basis.copy()
 
-    return moved
+    return Matrix([stored[i:i + 4] for i in range(0, 16, 4)])
+
+
+def set_rest(bone: bpy.types.Object, matrix: Matrix):
+    bone[REST_KEY] = [x for row in matrix for x in row]
 
 
 def mesh_hash(obj: bpy.types.Object) -> str:
