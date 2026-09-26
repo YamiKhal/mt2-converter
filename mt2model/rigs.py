@@ -14,6 +14,8 @@ CHARACTER_ANIMATIONS = (
 
 STANDARD_BONES = ("head", "hat", "torso", "tail", "armleft", "armright", "legleft", "legright")
 
+GIZMO_ANIMATIONS = ("open", "close", "unlock")
+
 CREATURE_FOLDERS = {
     "monster": "default/monsters",
     "npc": "default/npcs",
@@ -27,6 +29,14 @@ def merge_animations(base: list[Animation], changed: list[Animation]) -> list[An
     merged = [by_name.pop(a.name, a) for a in base]
 
     return merged + list(by_name.values())
+
+
+def rename_nodes(animations: list[Animation], renames: dict[str, str]) -> list[Animation]:
+    for animation in animations:
+        for timeline in animation.timelines:
+            timeline.node = renames.get(timeline.node, timeline.node)
+
+    return animations
 
 
 def missing_animations(names: set[str], needed: tuple[str, ...]) -> list[str]:

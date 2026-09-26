@@ -23,7 +23,7 @@ class Built:
 
 
 GEOMETRY_TYPES = {"MESH", "CURVE", "SURFACE", "FONT", "META"}
-SKIPPED_ROLES = {"REFERENCE", "PREVIEW", "PAD", "ENTRANCE", "BONE", "SOCKET", "CREATURE"}
+SKIPPED_ROLES = {"REFERENCE", "PREVIEW", "PAD", "ENTRANCE", "BONE", "SOCKET", "CREATURE", "RAMP_PATH"}
 ROLE_MATERIAL = {"LIGHT": "light", "COLLISION": "collision", "NAVMESH": "navmesh"}
 DEFAULT_MATERIAL = {"vertex": "Material_tint", "costume": "costume", "any": "Material_tint"}
 DEGENERATE_RATIO = 1e-9

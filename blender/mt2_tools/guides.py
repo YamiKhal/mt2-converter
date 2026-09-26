@@ -3,11 +3,12 @@ import gpu
 from gpu_extras.batch import batch_for_shader
 from mathutils import Vector
 
+from .bridge_objects import is_ramp, ramp_path_points
 from .convert_out import asset_root
+from .mt2model.bridges import BRIDGE_LENGTH
 
 CELL = 3.0
 WALL_LENGTH = 50.0
-BRIDGE_LENGTHS = {"bridge": 60.0, "ramp": 50.0}
 COLOR = (0.35, 0.8, 1.0, 0.6)
 
 Line = tuple[Vector, Vector]
@@ -22,9 +23,17 @@ def guide_lines(root: bpy.types.Object) -> list[Line]:
     if asset == "wall":
         return _run(WALL_LENGTH, 2.0)
     if asset == "bridge":
-        return _run(BRIDGE_LENGTHS.get(root.mt2.bridge_piece, WALL_LENGTH), 8.0)
+        return _run(_bridge_length(root), 8.0)
 
     return []
+
+
+def _bridge_length(root: bpy.types.Object) -> float:
+    if not is_ramp(root):
+        return BRIDGE_LENGTH
+    points = ramp_path_points(root)
+
+    return points[-1][2] if points else 0.0
 
 
 def _box(low: Vector, high: Vector) -> list[Line]:

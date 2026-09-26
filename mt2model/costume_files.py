@@ -38,12 +38,14 @@ def read_costume(text: bytes | str) -> CostumeFile:
     return parsed
 
 
-def write_costume(template: bytes | str, name: str, parts: list[PartPlacement], actor: str | None = None) -> str:
+def write_costume(template: bytes | str, name: str, parts: list[PartPlacement], actor: str | None = None,
+                  renames: dict[str, str] | None = None) -> str:
     parsed = records.parse(template)
     costume = _costume_record(parsed)
     costume.set_prop("name", name)
     if actor is not None:
         costume.set_prop("actorName", actor)
+    _rename_descriptors(costume, renames or {})
     by_bone = {p.bone: p for p in parts}
     container = costume.child("costumePart")
     for descriptor in _descriptors(costume):
@@ -58,6 +60,20 @@ def write_costume(template: bytes | str, name: str, parts: list[PartPlacement], 
         container.children.append(descriptor)
 
     return records.render(parsed)
+
+
+def rename_bones(text: bytes | str, renames: dict[str, str]) -> str:
+    parsed = records.parse(text)
+    _rename_descriptors(_costume_record(parsed), renames)
+
+    return records.render(parsed)
+
+
+def _rename_descriptors(costume: records.Record, renames: dict[str, str]):
+    for descriptor in _descriptors(costume):
+        bone = descriptor.prop("boneName") or ""
+        if bone in renames:
+            descriptor.set_prop("boneName", renames[bone])
 
 
 def _place(descriptor: records.Record, part: PartPlacement):

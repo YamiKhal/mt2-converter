@@ -2,15 +2,18 @@ import bpy
 from mathutils import Matrix, Quaternion, Vector
 
 from . import game, project
-from .anim_objects import NAME_KEY, channelbag, import_animations, is_keyed, owned_actions, show_rest_pose
-from .costume_objects import ACTOR_KEY, bone_objects, rest_matrix, set_rest
+from .anim_objects import (NAME_KEY, channelbag, find_slot, import_animations, is_keyed, owned_actions,
+                           rename_slots, show_rest_pose)
+from .costume_objects import ACTOR_KEY, TEMPLATE_KEY, bone_objects, rest_matrix, set_rest
 from .mt2model.animations import Animation, read_animations
 from .mt2model.axes import swap_position, swap_rotation, swap_scale
+from .mt2model.costume_files import read_costume
 from .mt2model.gamedata import GameData
 from .mt2model.model import Node
 from .mt2model.naming import clean_word, prefixed
-from .mt2model.rigs import merge_animations
+from .mt2model.rigs import merge_animations, rename_nodes
 
+OLD_NAMES_KEY = "mt2_old_names"
 BONE_SIZE = 0.05
 MOVE_TOLERANCE = 1e-4
 
@@ -32,7 +35,10 @@ def rig_name(costume: bpy.types.Object, mod_id: str, rigs: set[str]) -> str:
 
 
 def rig_animations(rig: str) -> list[Animation]:
-    rel = f"skeletons/{rig}.van"
+    return game_animations(f"skeletons/{rig}.van")
+
+
+def game_animations(rel: str) -> list[Animation]:
     vanilla = game.game_data().sources[-1]
     base = read_animations(vanilla.read(rel)) if vanilla.exists(rel) else []
     own = project.read_text(game.project_dir(), rel)
@@ -43,9 +49,10 @@ def rig_animations(rig: str) -> list[Animation]:
 def starting_animations(costume: bpy.types.Object, rig: str) -> list[Animation]:
     own = project.read_text(game.project_dir(), f"skeletons/{rig}.van")
     if own:
-        return read_animations(own)
+        return rename_nodes(read_animations(own), bone_renames(costume))
+    source = rig_animations(costume.get(ACTOR_KEY, "humanoid")) or rig_animations("humanoid")
 
-    return rig_animations(costume.get(ACTOR_KEY, "humanoid")) or rig_animations("humanoid")
+    return rename_nodes(source, bone_renames(costume))
 
 
 def skeleton_root(costume: bpy.types.Object) -> bpy.types.Object | None:
@@ -68,6 +75,55 @@ def skeleton_node(bone: bpy.types.Object) -> Node:
     node.children = [skeleton_node(c) for c in bone.children if c.mt2.role == "BONE"]
 
     return node
+
+
+def bone_renames(costume: bpy.types.Object) -> dict[str, str]:
+    return {old: bone.get("mt2_node", bone.name) for bone in _bones(costume) for old in bone.get(OLD_NAMES_KEY, [])}
+
+
+def renamed_from(bone: bpy.types.Object) -> list[str]:
+    return list(bone.get(OLD_NAMES_KEY, []))
+
+
+def name_problem(costume: bpy.types.Object, bone: bpy.types.Object | None, new: str) -> str | None:
+    if not new:
+        return "A bone needs a name"
+    if bone is not None and bone is skeleton_root(costume):
+        return "The rig's root keeps its name"
+    others = [b for b in _bones(costume) if b is not bone]
+    taken = {name for other in others for name in [other.get("mt2_node", other.name), *renamed_from(other)]}
+    if new in taken:
+        return f"'{new}' is, or was, the name of another bone"
+    own = {bone.get("mt2_node", bone.name), *renamed_from(bone)} if bone is not None else set()
+    if new in _template_names(costume) - own:
+        return f"The costume already has an entry called '{new}'"
+
+    return None
+
+
+def rename_bone(costume: bpy.types.Object, bone: bpy.types.Object, new: str):
+    old = bone.get("mt2_node", bone.name)
+    history = [n for n in [*renamed_from(bone), old] if n != new]
+    rename_slots(costume, bone, old, new)
+    bone[OLD_NAMES_KEY] = list(dict.fromkeys(history))
+    bone["mt2_node"] = new
+    bone.name = new
+    for part in bone.children:
+        if part.mt2.is_asset and part.mt2.asset == "costume_part":
+            part.mt2.bone = new
+
+
+def _bones(costume: bpy.types.Object) -> list[bpy.types.Object]:
+    return [o for o in costume.children_recursive if o.mt2.role == "BONE"]
+
+
+def _template_names(costume: bpy.types.Object) -> set[str]:
+    data = game.game_data()
+    template = costume.get(TEMPLATE_KEY)
+    if not template or data is None or not data.exists(template):
+        return set()
+
+    return {p.bone for p in read_costume(data.read(template)).parts}
 
 
 def add_bone(parent: bpy.types.Object, name: str, location: Vector) -> bpy.types.Object:
@@ -109,7 +165,7 @@ def keep_rest_pose(costume: bpy.types.Object, animations: list[Animation]) -> li
 
 
 def _shift_keys(action: bpy.types.Action, bone: bpy.types.Object, old: Matrix, new: Matrix):
-    slot = next((s for s in action.slots if s.name_display == bone.name), None)
+    slot = find_slot(action, bone.get("mt2_node", bone.name), bone)
     bag = channelbag(action, slot) if slot is not None else None
     if bag is None:
         return

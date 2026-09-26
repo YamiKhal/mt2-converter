@@ -5,9 +5,12 @@ import bpy
 
 from . import game, pipeline
 from .anim_objects import REST_POSE, owned_actions
+from .bridge_objects import is_bridge_span, is_ramp, ramp_path_object
 from .convert_out import asset_root
 from .costume_objects import costume_root, is_loose_part
 from .creature_spot import is_flight_point
+from .door_preview import door_preview_action, is_door
+from .gizmo_plan import edits_game_gizmo, is_game_gizmo
 from .mt2model.naming import target_problems
 
 LEVEL_ICONS = {"error": "ERROR", "warning": "INFO", "info": "CHECKMARK"}
@@ -84,7 +87,7 @@ class MT2_PT_asset(_Panel):
         _split(layout)
         s = root.mt2
         layout.prop(s, "asset")
-        if s.asset not in NAMELESS:
+        if s.asset not in NAMELESS and not edits_game_gizmo(root):
             layout.prop(s, "name")
         for field in _fields(root):
             layout.prop(s, field)
@@ -109,6 +112,10 @@ def _fields(root) -> list[str]:
         fields.append("display_name")
     if is_flight_point(root):
         fields += ["creature", "creature_animation"]
+    if is_bridge_span(root):
+        fields.append("fully_obstructed")
+    if is_game_gizmo(root):
+        fields = ["edit_game"] if s.edit_game else fields + ["edit_game"]
 
     return fields
 
@@ -194,7 +201,9 @@ class MT2_PT_animation(_Panel):
         row.operator("mt2.new_animation", text="" if has_actions else "New animation", icon="ADD")
         if root.mt2.asset == "costume":
             row.operator("mt2.import_animations", text="", icon="IMPORT")
-        if has_actions and root.mt2.animation != REST_POSE:
+        if is_door(root):
+            row.operator("mt2.play_door", text="", icon="PLAY")
+        if has_actions and root.mt2.animation != REST_POSE and door_preview_action(root) is None:
             layout.prop(root.mt2, "playback", text="")
 
 
@@ -219,6 +228,9 @@ class MT2_PT_paint(_Panel):
                 cell = grid.row(align=True)
                 cell.prop(entry, "color", text="")
                 cell.operator("mt2.use_color", text="", icon="FORWARD").index = index
+        row = layout.row()
+        row.alignment = "RIGHT"
+        row.menu("MT2_MT_swatches", text="Manage", icon="PRESET")
 
 
 class MT2_PT_palette(_Panel):
@@ -287,8 +299,11 @@ class MT2_PT_helpers(_Panel):
         column = layout.column(align=True)
         if asset in LIGHT_ASSETS:
             column.operator("mt2.add_light", icon="LIGHT_POINT")
+        if asset in LIGHT_ASSETS or is_bridge_span(root):
             column.operator("mt2.add_obstruction", icon="MOD_BOOLEAN")
-        if asset in PAD_ASSETS:
+        if is_ramp(root) and ramp_path_object(root) is None:
+            column.operator("mt2.add_ramp_path", icon="CURVE_PATH")
+        if asset in PAD_ASSETS and not edits_game_gizmo(root):
             row = column.row(align=True)
             row.operator("mt2.add_pad", icon="MESH_PLANE")
             row.operator("mt2.add_entrance", icon="CURVE_PATH")
@@ -297,7 +312,8 @@ class MT2_PT_helpers(_Panel):
         if costume_root(obj) is not None and asset != "costume_part":
             row = column.row(align=True)
             row.operator("mt2.add_bone", icon="BONE_DATA")
-            row.operator("mt2.set_rest_pose", icon="ARMATURE_DATA")
+            row.operator("mt2.rename_bone", text="Rename", icon="SORTALPHA")
+            column.operator("mt2.set_rest_pose", icon="ARMATURE_DATA")
         if root is not None and is_flight_point(root):
             column.operator("mt2.add_creature_spot", icon="EMPTY_ARROWS")
         if asset in ("scenery", "building"):

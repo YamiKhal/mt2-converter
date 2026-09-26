@@ -4,6 +4,7 @@ from . import game
 from .anim_objects import NAME_KEY, import_animations, new_action, owned_actions
 from .convert_out import asset_root
 from .costume_objects import ACTOR_KEY
+from .door_preview import is_door, play_door
 from .rig_objects import rig_animations
 
 ANIMATED_ASSETS = ("costume", "gizmo")
@@ -71,4 +72,26 @@ class MT2_OT_new_animation(_AnimatedOperator):
         return {"FINISHED"}
 
 
-CLASSES = (MT2_OT_import_animations, MT2_OT_new_animation)
+class MT2_OT_play_door(_AnimatedOperator):
+    bl_idname = "mt2.play_door"
+    bl_label = "Play door"
+    bl_description = ("Play unlock, open, close and open again in a row, the way the game plays a door, "
+                      "to see parts that jump between them. Pick an animation again to edit it")
+
+    @classmethod
+    def poll(cls, context):
+        root = asset_root(context.active_object)
+
+        return root is not None and is_door(root)
+
+    def execute(self, context):
+        root = asset_root(context.active_object)
+        action = play_door(root)
+        root.mt2.animation = action.name
+        if context.screen is not None and not context.screen.is_animation_playing:
+            bpy.ops.screen.animation_play()
+
+        return {"FINISHED"}
+
+
+CLASSES = (MT2_OT_import_animations, MT2_OT_new_animation, MT2_OT_play_door)

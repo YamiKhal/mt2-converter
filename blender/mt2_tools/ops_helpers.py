@@ -5,6 +5,7 @@ from mathutils import Matrix, Vector
 
 from . import convert_out, game, shading
 from .convert_out import asset_root
+from .bridge_objects import NEW_RAMP_PATH, create_ramp_path, is_ramp, ramp_path_object
 from .creature_spot import create_spot, is_flight_point, spot_of
 from .mt2model.assets import asset_type
 from .mt2model.axes import swap_ground
@@ -85,8 +86,8 @@ class MT2_OT_add_light(bpy.types.Operator):
 class MT2_OT_add_obstruction(bpy.types.Operator):
     bl_idname = "mt2.add_obstruction"
     bl_label = "Add obstruction shape"
-    bl_description = ("Add a flat shape at ground level. Every face of it becomes one convex footprint polygon; "
-                      "together they replace the automatic footprint")
+    bl_description = ("Add a flat shape at ground level. Every face of it becomes one convex footprint polygon. "
+                      "For scenery they replace the automatic footprint; under a bridge, nothing can be placed there")
     bl_options = {"REGISTER", "UNDO"}
 
     size: bpy.props.FloatProperty(name="Size", min=0.1, default=4.0)
@@ -102,6 +103,26 @@ class MT2_OT_add_obstruction(bpy.types.Operator):
         mesh.from_pydata([(-h, -h, 0), (h, -h, 0), (h, h, 0), (-h, h, 0)], [], [(0, 1, 2, 3)])
         obj = _helper(context, "Obstruction", mesh, "OBSTRUCTION", root)
         obj.location = (context.scene.cursor.location.x, context.scene.cursor.location.y, root.matrix_world.translation.z)
+
+        return {"FINISHED"}
+
+
+class MT2_OT_add_ramp_path(bpy.types.Operator):
+    bl_idname = "mt2.add_ramp_path"
+    bl_label = "Add ramp path"
+    bl_description = ("Add the line characters walk up this ramp: from the ground at its start to the bridge at its end. "
+                      "Its last point sets the bridge's height")
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        root = asset_root(context.active_object)
+
+        return root is not None and is_ramp(root) and ramp_path_object(root) is None
+
+    def execute(self, context):
+        root = asset_root(context.active_object)
+        _select(context, create_ramp_path(root, NEW_RAMP_PATH, context.collection))
 
         return {"FINISHED"}
 
@@ -275,6 +296,6 @@ class MT2_OT_palette_preview(bpy.types.Operator):
         return {"FINISHED"}
 
 
-CLASSES = (MT2_OT_make_asset, MT2_OT_add_light, MT2_OT_add_obstruction, MT2_OT_add_pad, MT2_OT_add_entrance,
+CLASSES = (MT2_OT_make_asset, MT2_OT_add_light, MT2_OT_add_obstruction, MT2_OT_add_ramp_path, MT2_OT_add_pad, MT2_OT_add_entrance,
            MT2_OT_add_creature_spot, MT2_OT_add_socket, MT2_OT_footprint_preview,
            MT2_OT_palette_preview)

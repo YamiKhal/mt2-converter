@@ -6,12 +6,14 @@ from .mt2model.animations import PLAYBACK_TYPES
 from .mt2model.dungeons import SHAPES
 from .mt2model.assets import ASSET_TYPES, MODULAR_SLOTS, PLACEABLE_SCENERY_TYPES, TAG_KINDS, TAG_PLACES
 from .mt2model.variants import building_kinds, gizmo_dirs
+from .door_preview import PREVIEW_NAME, clear_door_preview, door_preview_action
 from .palette import show_palette
 
 ROLES = (
     ("NONE", "Model", "Exported as part of the model"),
     ("LIGHT", "Point light", "Becomes a 'light' fragment: a point light at its centre, radius from its size"),
-    ("OBSTRUCTION", "Obstruction shape", "Its faces become the footprint polygons in <name>_obs.vrt"),
+    ("OBSTRUCTION", "Obstruction shape",
+     "Its faces become footprint polygons: for scenery in <name>_obs.vrt, for a bridge where nothing can go under it"),
     ("COLLISION", "Collision", "Dungeon tiles only: the physics mesh"),
     ("NAVMESH", "Navmesh", "Dungeon tiles only: the walkable surface"),
     ("PAD", "NPC pad", "A flat 4-corner area where NPCs stand; its entrance lines are its children"),
@@ -19,6 +21,7 @@ ROLES = (
     ("SOCKET", "Prop socket", "Dungeon tiles: a spot where the dungeon places a prop whose tags match"),
     ("BONE", "Bone", "A skeleton bone of a costume; parts parented to it follow it"),
     ("CREATURE", "Creature spot", "Flight points: where the creature stands and which way it faces"),
+    ("RAMP_PATH", "Ramp path", "Bridge ramps: the line NPCs walk from the ground up onto the bridge"),
     ("REFERENCE", "Reference", "A vanilla model for scale; never exported"),
     ("PREVIEW", "Preview", "A helper drawn by the add-on; never exported"),
 )
@@ -52,11 +55,18 @@ def animation_items(self, context):
     if actions and owner.mt2.asset == "costume":
         _animation_items.append((REST_POSE, "Rest pose", "The bones without animation, as the rig stores them"))
     _animation_items.extend((a.name, a.get(NAME_KEY, a.name), "") for a in actions)
+    preview = door_preview_action(owner)
+    if preview is not None:
+        _animation_items.append((preview.name, PREVIEW_NAME, "unlock, open, close and open again, as a door plays them"))
 
     return _animation_items or [("", "No animations", "")]
 
 
 def _animation_changed(self, context):
+    preview = door_preview_action(self.id_data)
+    if preview is not None and self.animation == preview.name:
+        return
+    clear_door_preview(self.id_data)
     if self.animation == REST_POSE:
         show_rest_pose(self.id_data)
         return
@@ -135,6 +145,7 @@ class MT2_SceneSettings(bpy.types.PropertyGroup):
         name="Color", subtype="COLOR_GAMMA", size=4, min=0.0, max=1.0, default=(0.8, 0.8, 0.8, 1.0),
     )
     recent_colors: bpy.props.CollectionProperty(type=MT2_Color)
+    swatch_profile: bpy.props.StringProperty(name="Swatch profile", description="The swatch profile loaded or saved last")
     select_connected: bpy.props.BoolProperty(
         name="Connected only", default=True,
         description="Only select faces touching the selection through faces of the same color",
@@ -231,6 +242,11 @@ class MT2_ObjectSettings(bpy.types.PropertyGroup):
         name="Piece", items=(("bridge", "Bridge", ""), ("ramp", "Ramp", "")), default="bridge",
         update=_forget_findings,
     )
+    fully_obstructed: bpy.props.BoolProperty(
+        name="Block the whole span", update=_forget_findings,
+        description=("Nothing can be placed under any part of the bridge, like under the rail bridge. "
+                     "Otherwise only under its obstruction shapes"),
+    )
     dungeon_theme: bpy.props.StringProperty(name="Theme", update=_forget_findings)
     tile_kind: bpy.props.EnumProperty(
         name="Piece", items=(("walls", "Wall", ""), ("ceilings", "Ceiling", "")), default="walls",
@@ -254,6 +270,12 @@ class MT2_ObjectSettings(bpy.types.PropertyGroup):
     display_name: bpy.props.StringProperty(
         name="Display name", update=_forget_findings,
         description="The name players see for this building, vehicle, costume or new weapon category",
+    )
+    edit_game: bpy.props.BoolProperty(
+        name="Change the game's", update=_forget_findings,
+        description=("Export only the animations you changed, into this game gizmo, instead of making a new one. "
+                     "Every gizmo of this style plays them. For chests and barrels, the first frame of open is "
+                     "how they look closed"),
     )
     rig: bpy.props.StringProperty(
         name="Rig", update=_forget_findings,

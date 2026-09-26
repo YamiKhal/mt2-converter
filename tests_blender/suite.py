@@ -865,6 +865,232 @@ class NewModels(unittest.TestCase):
         self.assertAlmostEqual(abs(rotation[1]), 1.0, places=4)
         self.assertTrue(any("griffin" in f.message for f in plan.findings))
 
+    def action_of(self, root, name):
+        return next(a for a in bpy.data.actions if a.get("mt2_owner") == root and a.get("mt2_name") == name)
+
+    def test_renamed_objects_keep_their_animation(self):
+        root = self.costume()
+        self.assertEqual(bpy.ops.mt2.import_animations(), {"FINISHED"})
+        idle = self.action_of(root, "idle")
+        head = self.bone(root, "head")
+        head.name = "Head in the Outliner"
+        root.mt2.animation = idle.name
+        self.assertEqual(head.animation_data.action_slot.name_display, "head")
+        wave = self.action_of(root, "run")
+        legacy = next(s for s in wave.slots if s.name_display == "torso")
+        torso = self.bone(root, "torso")
+        torso.name = "Torso object"
+        legacy.name_display = torso.name
+        root.mt2.animation = wave.name
+        self.assertEqual(legacy.name_display, "torso", "slots named after the object in older files are renamed")
+        head.keyframe_insert("rotation_quaternion", frame=1)
+        written = next(a for a in animations.read_animations(pipeline.plan(root).texts["skeletons/humanoid.van"])
+                       if a.name == "run")
+        self.assertIn("head", [t.node for t in written.timelines])
+        self.assertIn("torso", [t.node for t in written.timelines])
+
+    def test_rename_bones_on_an_own_rig(self):
+        root = self.costume()
+        select_only(self.bone(root, "armright"))
+        self.assertEqual(run(bpy.ops.mt2.rename_bone, name="arm_r"), {"CANCELLED"}, "game rigs keep their names")
+        root.mt2.rig = "biped"
+        for taken in ("head", "hand", ""):
+            self.assertEqual(run(bpy.ops.mt2.rename_bone, name=taken), {"CANCELLED"}, taken)
+        self.assertEqual(run(bpy.ops.mt2.rename_bone, name="arm_a"), {"FINISHED"})
+        arm = self.bone(root, "arm_a")
+        self.assertEqual(arm.name, "arm_a")
+        other = PROJECT / "costumes/test_models_other.costume"
+        other.parent.mkdir(parents=True, exist_ok=True)
+        other.write_text("\n".join([
+            "mmoCostume {",
+            '\tname "test_models_other";',
+            '\tactorName "test_models_biped";',
+            "\tcostumePart {",
+            "\t\tmmoCostumePartDescriptor {",
+            '\t\t\tboneName "armright"',
+            '\t\t\tmodelFilename "costumes/knight/armright.vmb"',
+            "\t\t}",
+            "\t}",
+            "}",
+            "",
+        ]))
+        try:
+            plan = pipeline.plan(root)
+            self.assertTrue(plan.ok, [f.message for f in plan.findings])
+            self.assertTrue(any("'arm_a' was 'armright'" in f.message for f in plan.findings))
+            costume = records.parse(plan.texts["costumes/test_models_knight.costume"])[0]
+            descriptors = costume.child("costumePart").children_named("mmoCostumePartDescriptor")
+            by_bone = {d.prop("boneName"): d for d in descriptors}
+            self.assertNotIn("armright", by_bone)
+            self.assertIsNotNone(by_bone["arm_a"].child("attachment"), "the hand attachment moves with the bone")
+            self.assertEqual(by_bone["arm_a"].prop("modelFilename"), "costumes/knight/armright.vmb")
+            written = animations.read_animations(plan.texts["skeletons/test_models_biped.van"])
+            nodes = {t.node for a in written for t in a.timelines}
+            self.assertIn("arm_a", nodes)
+            self.assertNotIn("armright", nodes)
+            self.assertEqual(costume_files.read_costume(plan.texts["costumes/test_models_other.costume"]).parts[0].bone,
+                             "arm_a")
+            self.assertEqual(run(bpy.ops.mt2.export), {"FINISHED"}, [f.message for f in bpy.context.scene.mt2.findings])
+            select_only(arm)
+            self.assertEqual(run(bpy.ops.mt2.rename_bone, name="arm_b"), {"FINISHED"})
+            plan = pipeline.plan(root)
+            nodes = {t.node for a in animations.read_animations(plan.texts["skeletons/test_models_biped.van"])
+                     for t in a.timelines}
+            self.assertIn("arm_b", nodes)
+            self.assertFalse(nodes & {"arm_a", "armright"}, "names from earlier exports are renamed too")
+            self.assertEqual(run(bpy.ops.mt2.rename_bone, name="armright"), {"FINISHED"})
+            plan = pipeline.plan(root)
+            self.assertFalse(any("was 'armright'" in f.message for f in plan.findings))
+            self.assertEqual(module("rig_objects").bone_renames(root), {"arm_a": "armright", "arm_b": "armright"})
+            twin = self.costume()
+            twin.mt2.rig = "biped"
+            select_only(self.bone(twin, "head"))
+            bpy.ops.mt2.rename_bone(name="skull")
+            self.assertTrue(any("same rig with other bones" in f.message for f in pipeline.plan(root).findings))
+        finally:
+            other.unlink()
+            for rel in ("skeletons/test_models_biped.van", "skeletons/test_models_biped.vmb",
+                        "costumes/test_models_knight.costume"):
+                (PROJECT / rel).unlink(missing_ok=True)
+
+    def test_change_a_game_gizmos_animation(self):
+        door = import_game("gizmo/door/base1.vmb")
+        self.assertEqual(len([a for a in bpy.data.actions if a.get("mt2_owner") == door]), 4)
+        door.mt2.edit_game = True
+        plan = pipeline.plan(door)
+        self.assertFalse(plan.ok)
+        self.assertTrue(any("no animation is changed" in f.message for f in plan.findings))
+        opening = self.action_of(door, "open")
+        door.mt2.animation = opening.name
+        bag = module("anim_objects").channelbag(opening, opening.slots[0])
+        point = bag.fcurves[0].keyframe_points[-1]
+        point.co.y += 0.5
+        plan = pipeline.plan(door)
+        self.assertTrue(plan.ok, [f.message for f in plan.findings])
+        self.assertEqual(list(plan.texts), ["gizmo/door/base1.van"])
+        self.assertEqual([a.name for a in animations.read_animations(plan.texts["gizmo/door/base1.van"])], ["open"])
+        mesh = next(o for o in door.children_recursive if o.type == "MESH")
+        mesh.data.vertices[0].co.x += 0.1
+        self.assertTrue(any("model itself" in f.message for f in pipeline.plan(door).findings))
+        mesh.data.vertices[0].co.x -= 0.1
+        self.assertEqual(bpy.ops.mt2.new_animation(name="wobble"), {"FINISHED"})
+        mesh.keyframe_insert("location", frame=1)
+        self.assertTrue(any("never plays 'wobble'" in f.message for f in pipeline.plan(door).findings))
+        bpy.data.actions.remove(self.action_of(door, "wobble"))
+        door.mt2.animation = opening.name
+        self.assertEqual(run(bpy.ops.mt2.export), {"FINISHED"}, [f.message for f in bpy.context.scene.mt2.findings])
+        self.assertEqual(door.mt2.exported_path, "")
+        try:
+            game.forget()
+            again = import_game("gizmo/door/base1.vmb")
+            loaded = [a for a in bpy.data.actions if a.get("mt2_owner") == again]
+            self.assertEqual(len(loaded), 4, "the game's animations with the mod's change merged in")
+            door.mt2.edit_game = False
+            door.mt2.name = "door2"
+            plan = pipeline.plan(door)
+            self.assertIn("gizmo/door/test_models_door2.variant", plan.texts)
+        finally:
+            (PROJECT / "gizmo/door/base1.van").unlink(missing_ok=True)
+
+    def test_door_parts_that_jump_between_animations(self):
+        for rel in ("gizmo/door/base1.vmb", "gizmo/door/base5.vmb", "gizmo/bossdoor/boss2.vmb"):
+            door = import_game(rel)
+            door.mt2.name = "calm_" + rel.split("/")[-1][:-4]
+            self.assertFalse(any("jumps" in f.message for f in pipeline.plan(door).findings), rel)
+        door = import_game("gizmo/door/base1.vmb")
+        door.mt2.edit_game = True
+        unlock = self.action_of(door, "unlock")
+        lock = next(o for o in door.children_recursive if o.get("mt2_node") == "lock1")
+        slot = module("anim_objects").find_slot(unlock, "lock1", lock)
+        bag = module("anim_objects").channelbag(unlock, slot)
+        curve = next(c for c in bag.fcurves if c.data_path == "location" and c.array_index == 2)
+        curve.keyframe_points[-1].co.y += 0.05
+        messages = [f.message for f in pipeline.plan(door).findings]
+        self.assertTrue(any("'lock1' jumps from the end of unlock to the start of open" in m for m in messages), messages)
+
+    def test_bridge_ramp_path_and_obstruction(self):
+        bridges = module("mt2model.bridges")
+        rel = "bridge_themes/castle.vrt"
+        vanilla = bridges.read_bridge(game.game_data().sources[-1].read(rel))
+        ramp = import_game("bridge_themes/castle/ramp_castle.vmb")
+        path = module("bridge_objects").ramp_path_object(ramp)
+        self.assertIsNotNone(path)
+        plan = pipeline.plan(ramp)
+        self.assertTrue(plan.ok, [f.message for f in plan.findings])
+        self.assertIn("__replace", plan.texts[rel])
+        written = bridges.read_bridge(plan.texts[rel])
+        self.assertEqual(len(written.ramp_path), len(vanilla.ramp_path))
+        for old, new in zip(vanilla.ramp_path, written.ramp_path):
+            for a, b in zip(old, new):
+                self.assertAlmostEqual(a, b, places=3)
+        path.data.vertices[len(path.data.vertices) - 1].co.z += 2.0
+        written = bridges.read_bridge(pipeline.plan(ramp).texts[rel])
+        self.assertAlmostEqual(written.height, vanilla.height + 2.0, places=3)
+        path.data.vertices[len(path.data.vertices) - 1].co.y -= 20.0
+        self.assertTrue(any("ramp model ends" in f.message for f in pipeline.plan(ramp).findings))
+        span = import_game("bridge_themes/castle/bridge_castle.vmb")
+        shape = next(c for c in span.children if c.mt2.role == "OBSTRUCTION")
+        self.assertEqual(len(shape.data.polygons), len(vanilla.obstruction))
+        span.mt2.fully_obstructed = True
+        written = bridges.read_bridge(pipeline.plan(span).texts[rel])
+        self.assertTrue(written.fully_obstructed)
+        self.assertAlmostEqual(written.depth, vanilla.depth, places=3)
+        expected = sorted(sorted(polygon) for polygon in vanilla.obstruction)
+        for old, new in zip(expected, sorted(sorted(polygon) for polygon in written.obstruction)):
+            for a, b in zip(old, new):
+                self.assertAlmostEqual(a[0], b[0], places=3)
+                self.assertAlmostEqual(a[1], b[1], places=3)
+        self.assertEqual(run(bpy.ops.mt2.new_theme, family="bridge", source="rope", name="moat"), {"FINISHED"})
+        own = PROJECT / "bridge_themes/test_models_moat/ramp_test_models_moat.vmb"
+        bpy.ops.mt2.import_file(filepath=str(own))
+        moat = bpy.context.view_layer.objects.active
+        bpy.data.objects.remove(module("bridge_objects").ramp_path_object(moat))
+        self.assertEqual(bpy.ops.mt2.add_ramp_path(), {"FINISHED"})
+        select_only(moat)
+        self.assertEqual(run(bpy.ops.mt2.export), {"FINISHED"}, [f.message for f in bpy.context.scene.mt2.findings])
+        text = (PROJECT / "bridge_themes/test_models_moat.vrt").read_text()
+        self.assertNotIn("__replace", text)
+        self.assertAlmostEqual(bridges.read_bridge(text).height, 5.0, places=3)
+
+    def test_play_door(self):
+        door = import_game("gizmo/door/base1.vmb")
+        preview_module = module("door_preview")
+        self.assertTrue(preview_module.is_door(door))
+        self.assertEqual(bpy.ops.mt2.play_door(), {"FINISHED"})
+        preview = preview_module.door_preview_action(door)
+        self.assertIsNotNone(preview)
+        self.assertEqual(door.mt2.animation, preview.name)
+        markers = [m.name for m in bpy.context.scene.timeline_markers if m.name.startswith("door: ")]
+        self.assertEqual(markers, ["door: unlock", "door: open", "door: close", "door: open"])
+        self.assertNotIn(preview, module("anim_objects").owned_actions(door))
+        self.assertFalse(any("Door preview" in text for text in pipeline.plan(door).texts.values()))
+        door.mt2.animation = self.action_of(door, "open").name
+        self.assertIsNone(preview_module.door_preview_action(door))
+        self.assertFalse([m for m in bpy.context.scene.timeline_markers if m.name.startswith("door: ")])
+        chest = import_game("gizmo/container/chest.vmb")
+        self.assertFalse(preview_module.is_door(chest))
+
+    def test_swatch_profiles(self):
+        settings = bpy.context.scene.mt2
+        colors = [(1.0, 0.0, 0.0, 1.0), (0.0, 0.5, 0.0, 1.0)]
+        settings.recent_colors.clear()
+        for color in colors:
+            settings.recent_colors.add().color = color
+        self.assertEqual(bpy.ops.mt2.save_swatches(name="Forest", ask=False), {"FINISHED"})
+        self.assertEqual(settings.swatch_profile, "Forest")
+        self.assertEqual(bpy.ops.mt2.new_swatches(), {"FINISHED"})
+        self.assertEqual((len(settings.recent_colors), settings.swatch_profile), (0, ""))
+        self.assertEqual(run(bpy.ops.mt2.load_swatches, name="Missing"), {"CANCELLED"})
+        self.assertEqual(bpy.ops.mt2.load_swatches(name="Forest"), {"FINISHED"})
+        loaded = [tuple(round(c, 3) for c in entry.color) for entry in settings.recent_colors]
+        self.assertEqual(loaded, colors)
+        profiles = module("swatch_profiles")
+        profiles.profiles_file().write_text("not json")
+        self.assertEqual(profiles.read_profiles(), {})
+        self.assertEqual(bpy.ops.mt2.save_swatches(name="Forest", ask=False), {"FINISHED"})
+        self.assertEqual(bpy.ops.mt2.delete_swatches(name="Forest"), {"FINISHED"})
+        self.assertEqual(profiles.read_profiles(), {})
+
     def test_dungeon_theme_and_tile(self):
         self.assertEqual(run(bpy.ops.mt2.new_theme, family="dungeon", source="arid", name="crypt"), {"FINISHED"})
         theme = PROJECT / "dungeon/themes/testmodelscrypt"
@@ -996,6 +1222,10 @@ class FakeLayout:
     def template_list(self, *args, **kwargs):
         self.log.append(("list", args[0]))
 
+    def menu(self, idname, **kwargs):
+        self.case.assertTrue(hasattr(bpy.types, idname), f"missing menu {idname}")
+        self.log.append(("menu", idname))
+
     def operator(self, idname, **kwargs):
         category, name = idname.split(".")
         self.case.assertTrue(hasattr(getattr(bpy.ops, category), name), f"missing operator {idname}")
@@ -1015,6 +1245,13 @@ class UI(unittest.TestCase):
             panel.draw(fake, bpy.context)
 
         return log
+
+    def test_swatch_menu_draws(self):
+        log = []
+        menu = module("ops_swatches").MT2_MT_swatches
+        menu.draw(type("Menu", (), {"layout": FakeLayout(self, log)})(), bpy.context)
+        self.assertIn(("operator", "mt2.new_swatches"), log)
+        self.assertIn(("menu", "MT2_MT_swatches"), self.draw_all())
 
     def test_panels_draw_without_an_asset(self):
         reset_scene()

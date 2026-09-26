@@ -21,11 +21,24 @@ def node_objects(root: bpy.types.Object) -> dict[str, bpy.types.Object]:
     role = "BONE" if root.mt2.asset == "costume" else "NONE"
     nodes = {}
     for obj in [root, *root.children_recursive]:
-        name = obj.get("mt2_node")
-        if name and name not in nodes and obj.mt2.role == role:
+        name = obj.get("mt2_node") or ("RootNode" if obj is root else obj.name)
+        if name not in nodes and obj.mt2.role == role:
             nodes[name] = obj
 
     return nodes
+
+
+def find_slot(action: bpy.types.Action, node: str, obj: bpy.types.Object):
+    by_node = next((s for s in action.slots if s.name_display == node), None)
+
+    return by_node or next((s for s in action.slots if s.name_display == obj.name), None)
+
+
+def rename_slots(root: bpy.types.Object, obj: bpy.types.Object, old: str, new: str):
+    for action in owned_actions(root):
+        slot = find_slot(action, old, obj)
+        if slot is not None:
+            slot.name_display = new
 
 
 def import_animations(root: bpy.types.Object, animations: list[Animation]) -> list[bpy.types.Action]:
@@ -38,22 +51,29 @@ def import_animations(root: bpy.types.Object, animations: list[Animation]) -> li
 
 
 def _make_action(root: bpy.types.Object, animation: Animation, nodes) -> bpy.types.Action:
-    action = bpy.data.actions.new(animation.name)
+    action = make_action(root, animation, nodes)
     action[OWNER_KEY] = root
     action[NAME_KEY] = animation.name
     action[PLAYBACK_KEY] = animation.playback
     action.use_fake_user = True
+    action[HASH_KEY] = action_hash(action)
+
+    return action
+
+
+def make_action(root: bpy.types.Object, animation: Animation, nodes=None) -> bpy.types.Action:
+    nodes = nodes if nodes is not None else node_objects(root)
+    action = bpy.data.actions.new(animation.name)
     strip = action.layers.new("Layer").strips.new(type="KEYFRAME")
     for timeline in animation.timelines:
         obj = nodes.get(timeline.node)
         if obj is None:
             continue
-        slot = action.slots.new(id_type="OBJECT", name=obj.name)
+        slot = action.slots.new(id_type="OBJECT", name=timeline.node)
         bag = strip.channelbag(slot, ensure=True)
         _add_curves(bag, "location", [(t, swap_position(v)) for t, v in timeline.translation])
         _add_curves(bag, "rotation_quaternion", [(t, _blender_quaternion(v)) for t, v in timeline.rotation])
         _add_curves(bag, "scale", [(t, swap_scale(v)) for t, v in timeline.scale])
-    action[HASH_KEY] = action_hash(action)
 
     return action
 
@@ -82,12 +102,14 @@ def owned_actions(root: bpy.types.Object) -> list[bpy.types.Action]:
 
 
 def assign(root: bpy.types.Object, action: bpy.types.Action):
-    for obj in node_objects(root).values():
+    for name, obj in node_objects(root).items():
         if REST_KEY in obj:
             obj.matrix_basis = rest_matrix(obj)
-        slot = next((s for s in action.slots if s.name_display == obj.name), None)
+        slot = find_slot(action, name, obj)
         if slot is None:
-            slot = action.slots.new(id_type="OBJECT", name=obj.name)
+            slot = action.slots.new(id_type="OBJECT", name=name)
+        elif slot.name_display != name:
+            slot.name_display = name
         if obj.animation_data is None:
             obj.animation_data_create()
         if obj.rotation_mode != "QUATERNION":
@@ -134,16 +156,16 @@ def new_action(root: bpy.types.Object, name: str) -> bpy.types.Action:
 
 
 def export_animation(root: bpy.types.Object, action: bpy.types.Action) -> Animation:
-    nodes = {obj.name: name for name, obj in node_objects(root).items()}
+    nodes = node_objects(root)
     animation = Animation(action.get(NAME_KEY, action.name), action.get(PLAYBACK_KEY, "Once"))
     first, last = action.frame_range
     start = int(round(first))
     for slot in action.slots:
         bag = channelbag(action, slot)
-        node = nodes.get(slot.name_display)
+        node = _slot_node(slot, nodes)
         if bag is None or node is None or not len(bag.fcurves):
             continue
-        location, rotation, scale = rest_matrix(bpy.data.objects[slot.name_display]).decompose()
+        location, rotation, scale = rest_matrix(nodes[node]).decompose()
         timeline = Timeline(node)
         for frame in _frames(bag, first, last):
             time = (frame - start) / FPS
@@ -154,6 +176,24 @@ def export_animation(root: bpy.types.Object, action: bpy.types.Action) -> Animat
         animation.timelines.append(timeline)
 
     return animation
+
+
+def _slot_node(slot, nodes: dict[str, bpy.types.Object]) -> str | None:
+    if slot.name_display in nodes:
+        return slot.name_display
+
+    return next((name for name, obj in nodes.items() if obj.name == slot.name_display), None)
+
+
+def unmatched_slots(root: bpy.types.Object, action: bpy.types.Action) -> list[str]:
+    nodes = node_objects(root)
+    unmatched = []
+    for slot in action.slots:
+        bag = channelbag(action, slot)
+        if bag is not None and len(bag.fcurves) and _slot_node(slot, nodes) is None:
+            unmatched.append(slot.name_display)
+
+    return unmatched
 
 
 def _frames(bag, first: float, last: float) -> list[float]:

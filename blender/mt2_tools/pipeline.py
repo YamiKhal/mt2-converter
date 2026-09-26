@@ -11,8 +11,10 @@ from .mt2model.costume import normalise
 from .mt2model.footprint import is_convex
 from .mt2model.pads import pad_problems
 from .anim_objects import export_animation, owned_actions
+from .bridge_plan import plan_bridge
 from .costume_objects import TEMPLATE_KEY, costume_root, is_unchanged, loose_parts, parts_of, placement
 from .creature_spot import FLIGHT_POINTS
+from .gizmo_plan import check_sequence, edits_game_gizmo, game_reference, plan_game_gizmo
 from .mt2model.animations import write_animations
 from .mt2model.dungeons import write_sockets
 from .socket_objects import collect_sockets
@@ -24,6 +26,7 @@ from .mt2model.obstruction import obs_file_name, write_obstruction
 from .mt2model.validate import Finding, has_errors, validate
 from .mt2model.vehicle_tool import TOOL_FILE, offer_vehicle
 from .mt2model.variants import building_kinds, derive_variant, display_name_key, variant_files
+from .rig_objects import bone_renames
 from .rig_plan import needs_own_parts, plan_creature_type, plan_flight_creature, plan_rig
 
 
@@ -39,7 +42,7 @@ class Plan:
 
     @property
     def ok(self) -> bool:
-        ready = self.built is not None or (self.texts and self.root_obj.mt2.asset == "costume")
+        ready = self.built is not None or (self.texts and self.root_obj.mt2.asset in ("costume", "gizmo"))
 
         return bool(ready) and not has_errors(self.findings) and all(p.ok for p in self.parts)
 
@@ -74,6 +77,9 @@ def plan(root_obj: bpy.types.Object) -> Plan:
         result.findings.append(Finding("error", "imported with MT2 Tools 0.1.0, which mirrored models in Blender. "
                                                 "Import the model again and redo the changes"))
         return result
+    if edits_game_gizmo(root_obj):
+        plan_game_gizmo(result)
+        return result
     result.rel = model_path(target)
     other = _other_asset_at(root_obj, result.rel)
     if other is not None:
@@ -106,6 +112,8 @@ def plan(root_obj: bpy.types.Object) -> Plan:
         _plan_gizmo(result, target)
     if target.asset == "dungeon_tile":
         _plan_dungeon_tile(result, target)
+    if target.asset == "bridge":
+        plan_bridge(result, target)
 
     return result
 
@@ -122,7 +130,7 @@ def _other_asset_at(root_obj: bpy.types.Object, rel: str) -> bpy.types.Object | 
 
 def _plan_obstruction(result: Plan, target: ExportTarget):
     polygons = result.built.obstruction
-    if not polygons:
+    if not polygons or target.asset == "bridge":
         return
     if target.asset not in ("scenery", "tagged"):
         result.findings.append(Finding("warning", "obstruction shapes only work for scenery; they are not exported"))
@@ -184,6 +192,8 @@ def _plan_gizmo(result: Plan, target: ExportTarget):
         parsed[0].set_prop("animationFile", animation_rel)
         variant = records.render(parsed)
         result.texts[f"{animation_rel}.van"] = write_animations(exported)
+        template_file = records.parse(data.read(template))[0].prop("animationFile")
+        check_sequence(result, exported, game_reference(f"{template_file}.van") if template_file else [])
     else:
         result.findings.append(Finding("info", "no animations of its own; it plays the template's, which only works "
                                                "if the node names match"))
@@ -263,7 +273,8 @@ def _plan_costume(result: Plan, target: ExportTarget):
         if part_plan.built is not None:
             placements.append(placement(part, part_plan.rel, part.mt2.model_scale if part.mt2.normalise else 1.0))
     rig = plan_rig(result, target)
-    result.texts[result.rel] = write_costume(data.read(template), stem, placements, actor=rig)
+    result.texts[result.rel] = write_costume(data.read(template), stem, placements, actor=rig,
+                                             renames=bone_renames(result.root_obj))
     plan_creature_type(result, target, stem, rig)
     result.texts[f"costumes/{stem}.defaults"] = write_defaults([tuple(c.color) for c in result.root_obj.mt2.palette])
     _plan_display_name(result, target, f"costume_{stem}")
@@ -291,7 +302,8 @@ def write(result: Plan) -> list[str]:
     for rel, data in result.files.items():
         project.write_bytes(folder, rel, data)
     project.record_export(folder, result.rel, result.root_obj.name)
-    result.root_obj.mt2.exported_path = result.rel
+    if not edits_game_gizmo(result.root_obj):
+        result.root_obj.mt2.exported_path = result.rel
     written += write_art_pack(folder)
     game.forget()
 

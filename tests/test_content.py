@@ -2,14 +2,15 @@ import unittest
 
 from helpers import cube, fake_game
 from mt2model import model, records
-from mt2model.animations import Animation
+from mt2model.animations import Animation, Timeline, chain, door_order, pose_jumps
+from mt2model.bridges import read_bridge, set_obstruction, set_ramp_path
 from mt2model.artpacks import art_pack, pack_content, weapon_pack
-from mt2model.costume_files import PartPlacement, read_costume, write_costume
+from mt2model.costume_files import PartPlacement, read_costume, rename_bones, write_costume
 from mt2model.formats import layout
 from mt2model.gamedata import GameData
 from mt2model.naming import dungeon_theme_name
 from mt2model.recolor import remap_colors
-from mt2model.rigs import CHARACTER_ANIMATIONS, creature_costume, creature_type, merge_animations
+from mt2model.rigs import CHARACTER_ANIMATIONS, creature_costume, creature_type, merge_animations, rename_nodes
 from mt2model.themes import theme_props
 from mt2model.variants import Creature, read_creature, set_creature
 from mt2model.vehicle_tool import offer_vehicle, offered_vehicles
@@ -79,6 +80,40 @@ class RigTests(unittest.TestCase):
         self.assertEqual((written.name, written.actor), ("m_griffin", "m_griffin"))
         self.assertEqual([p.bone for p in written.parts], ["wingleft"])
 
+    def test_renamed_bones_keep_their_entries(self):
+        template = "\n".join([
+            "mmoCostume {",
+            '\tname "k";',
+            '\tactorName "m_biped";',
+            "\tcostumePart {",
+            "\t\tmmoCostumePartDescriptor {",
+            '\t\t\tboneName "armright"',
+            "\t\t\tattachment {",
+            "\t\t\t}",
+            "\t\t}",
+            "\t}",
+            "}",
+            "",
+        ])
+        renamed = records.parse(rename_bones(template, {"armright": "arm_r"}))[0]
+        descriptor = renamed.child("costumePart").children[0]
+        self.assertEqual(descriptor.prop("boneName"), "arm_r")
+        self.assertIsNotNone(descriptor.child("attachment"))
+        written = read_costume(write_costume(template, "k", [PartPlacement("arm_r", "a.vmb")], renames={"armright": "arm_r"}))
+        self.assertEqual([p.bone for p in written.parts], ["arm_r"])
+
+    def test_renamed_nodes_in_animations(self):
+        animation = Animation("idle", timelines=[Timeline("armright"), Timeline("head")])
+        rename_nodes([animation], {"armright": "arm_r"})
+        self.assertEqual([t.node for t in animation.timelines], ["arm_r", "head"])
+
+    def test_pose_jumps_between_animations(self):
+        unlock = Animation("unlock", timelines=[Timeline("lock", translation=[(0.0, (0, 0, 0)), (1.0, (0, 0, 1))],
+                                                         rotation=[(0.0, (0, 0, 0, 1))])])
+        opening = Animation("open", timelines=[Timeline("lock", translation=[(0.0, (0, 0, 0.5))],
+                                                          rotation=[(0.0, (0, 0, 0, -1))])])
+        self.assertEqual(pose_jumps(unlock, opening), {"lock": (0.5, 0.0, 0.0)})
+
     def test_creature_type_from_a_prefab(self):
         template = 'mmoCharacterType\n{\n\tdef\n\t{\n\tname "Bear"\n\tcostumeName "bear"\n\tspeed 4.0\n\t}\n}\n'
         text = creature_type(template, "Griffin", "m_griffin")
@@ -91,6 +126,59 @@ class RigTests(unittest.TestCase):
         self.assertEqual(read_creature(variant), Creature("owl", "idle", (0.0, 5.0, 0.0), None))
         griffin = Creature("m_griffin", "idle", (1.0, 2.0, 3.0), (0.0, -1.0, 0.0, 0.0))
         self.assertEqual(read_creature(set_creature(variant, griffin)), griffin)
+
+
+class BridgeTests(unittest.TestCase):
+    VARIANT = "\n".join([
+        "mmoBridgeVariant",
+        "{",
+        'name "rope";',
+        "height 3.0",
+        "rampPath",
+        "{",
+        "mmoPadPath",
+        "{",
+        "path",
+        "{",
+        "0 0 0;",
+        "0 3 22;",
+        "}",
+        "}",
+        "}",
+        "fullyObstructed false;",
+        "obstruction",
+        "{",
+        "}",
+        "}",
+        "",
+    ])
+
+    def test_ramp_path_sets_the_height(self):
+        text = set_ramp_path(self.VARIANT, [(0, 0, 0), (0, 2, 10), (0, 6, 30)], replaces_game=False)
+        bridge = read_bridge(text)
+        self.assertEqual((bridge.height, len(bridge.ramp_path)), (6.0, 3))
+        self.assertNotIn("__replace", text)
+
+    def test_obstruction_and_one_replace_marker(self):
+        text = set_obstruction(self.VARIANT, [[(-2, 10), (2, 10), (2, 20)]], True, replaces_game=True)
+        text = set_obstruction(text, [[(-2, 10), (2, 10), (2, 20)]], True, replaces_game=True)
+        bridge = read_bridge(text)
+        self.assertTrue(bridge.fully_obstructed)
+        self.assertEqual(len(bridge.obstruction), 1)
+        self.assertEqual(text.count("__replace"), 1)
+        self.assertEqual(read_bridge(text).ramp_path, read_bridge(self.VARIANT).ramp_path)
+
+
+class DoorChainTests(unittest.TestCase):
+    def test_doors_play_unlock_open_close_open(self):
+        self.assertEqual(door_order({"close", "open", "unlock", "full animation"}), ["unlock", "open", "close", "open"])
+
+    def test_chained_animations_follow_each_other(self):
+        unlock = Animation("unlock", timelines=[Timeline("lock", rotation=[(0.0, (0, 0, 0, 1)), (1.0, (0, 0, 0, 1))])])
+        opening = Animation("open", timelines=[Timeline("lock", rotation=[(0.0, (0, 0, 0, -1))])])
+        chained, starts = chain("preview", [unlock, opening], 0.5)
+        self.assertEqual(starts, [0.0, 1.5])
+        self.assertEqual(chained.timelines[0].rotation[-1], (1.5, (0, 0, 0, 1)))
 
 
 if __name__ == "__main__":

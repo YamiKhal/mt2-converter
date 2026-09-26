@@ -7,13 +7,14 @@ from .creature_spot import spot_of, spot_placement
 from .mt2model import model
 from .mt2model.animations import read_animations, write_animations
 from .mt2model.costume import GREY_PALETTE, read_defaults
-from .mt2model.costume_files import read_costume
+from .mt2model.costume_files import read_costume, rename_bones
 from .mt2model.naming import clean_word, prefixed
-from .mt2model.rigs import CREATURE_FOLDERS, creature_costume, creature_type, merge_animations, missing_animations
+from .mt2model.rigs import (CREATURE_FOLDERS, STANDARD_BONES, creature_costume, creature_type, merge_animations,
+                            missing_animations)
 from .mt2model.validate import Finding
 from .mt2model.variants import Creature, read_creature, set_creature
-from .rig_objects import (bone_names, game_rigs, moved_bones, rig_name, skeleton_node, skeleton_root,
-                          starting_animations)
+from .rig_objects import (bone_names, bone_renames, game_rigs, moved_bones, renamed_from, rig_name, skeleton_node,
+                          skeleton_root, starting_animations)
 
 CREATURE_ANIMATIONS = ("idle", "run", "death")
 COLOR_TOLERANCE = 1.0 / 255
@@ -41,6 +42,10 @@ def _plan_game_rig(result, rig: str, source: str):
     costume = result.root_obj
     if rig != source:
         result.findings.append(Finding("error", f"a costume keeps its rig; import a {rig} costume to use the {rig} rig"))
+        return
+    if bone_renames(costume):
+        result.findings.append(Finding("error", f"the game's {rig} rig keeps its bone names; rename them back, or "
+                                                 f"give the costume its own Rig name"))
         return
     for bone in moved_bones(costume):
         result.findings.append(Finding("warning", f"the bone '{bone.name}' was moved, which the game rig can't store; "
@@ -76,6 +81,46 @@ def _plan_own_rig(result, target, rig: str, source: str):
         result.findings.append(Finding("warning", f"the rig has no '{name}' animation; add one under Animation"))
     if "torso" not in bone_names(costume) and is_mount(costume):
         result.findings.append(Finding("error", "mounts need a 'torso' bone; heroes ride on it"))
+    _check_renames(result, costume)
+    _other_costumes(result, target, rig)
+
+
+def _check_renames(result, costume: bpy.types.Object):
+    for bone in [o for o in costume.children_recursive if o.mt2.role == "BONE"]:
+        name = bone.get("mt2_node", bone.name)
+        standard = [old for old in renamed_from(bone) if old in STANDARD_BONES]
+        if standard and name not in STANDARD_BONES:
+            result.findings.append(Finding("warning", f"'{name}' was '{standard[0]}'; the costume editor only restyles "
+                                                      f"parts on its 8 bone names", bone.name))
+
+
+def _other_costumes(result, target, rig: str):
+    costume = result.root_obj
+    names = set(bone_names(costume))
+    renames = bone_renames(costume)
+    folder = game.project_dir()
+    for path in sorted((folder / "costumes").glob("*.costume")) if folder and (folder / "costumes").is_dir() else ():
+        rel = f"costumes/{path.name}"
+        text = path.read_text(encoding="utf-8")
+        try:
+            other = read_costume(text)
+        except ValueError:
+            continue
+        if rel == result.rel or other.actor != rig:
+            continue
+        if any(p.bone in renames for p in other.parts):
+            result.texts[rel] = rename_bones(text, renames)
+        missing = sorted({p.bone for p in other.parts if p.model_file and renames.get(p.bone, p.bone) not in names})
+        if missing:
+            result.findings.append(Finding("warning", f"{path.stem} puts parts on {', '.join(missing)}, which the "
+                                                      f"rig won't have any more"))
+    rigs = game_rigs(game.game_data())
+    for other in bpy.data.objects:
+        if other is costume or not (other.mt2.is_asset and other.mt2.asset == "costume"):
+            continue
+        if rig_name(other, target.mod_id, rigs) == rig and set(bone_names(other)) != names:
+            result.findings.append(Finding("warning", f"'{other.name}' in this file uses the same rig with other "
+                                                      f"bones; exporting it would change the rig back", other.name))
 
 
 def needs_own_parts(costume: bpy.types.Object) -> bool:

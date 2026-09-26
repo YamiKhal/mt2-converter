@@ -6,15 +6,17 @@ from bpy_extras.io_utils import ImportHelper
 from . import convert_in, game
 from .mt2model import model, records
 from .mt2model.assets import guess_from_path
-from .mt2model.axes import swap_ground
-from .mt2model.animations import read_animations
+from .mt2model.bridges import read_bridge, variant_path
 from .mt2model.dungeons import SHAPES, read_sockets
 from .mt2model.obstruction import obs_file_name, read_obstruction
 from .mt2model.pads import read_pads
 from .mt2model.variants import read_creature, variant_for_model
 from .anim_objects import import_animations
-from .costume_objects import import_costume
+from .bridge_objects import import_bridge_data
+from .rig_objects import game_animations
+from .costume_objects import MESH_HASH_KEY, import_costume, mesh_hash
 from .creature_spot import create_spot, is_flight_point
+from .obstruction_objects import create_obstruction_shape
 from .pad_objects import create_pads
 from .socket_objects import create_sockets
 from .settings import building_dir_items, gizmo_dir_items
@@ -63,6 +65,8 @@ def import_bytes(context, raw: bytes, rel: str, collection=None) -> bpy.types.Ob
             _import_gizmo(obj, data, collection)
         if obj.mt2.asset == "dungeon_tile" and data.exists(rel[: -len(".vmb")] + ".vrt"):
             create_sockets(obj, read_sockets(data.read(rel[: -len(".vmb")] + ".vrt")), collection)
+        if obj.mt2.asset == "bridge":
+            _import_bridge(obj, data, collection)
         if obj.mt2.asset == "vehicle" and data.exists(rel[: -len(".vmb")] + ".def"):
             obj.mt2.source_variant = rel[: -len(".vmb")] + ".def"
             _import_pads(obj, data, obj.mt2.source_variant, collection)
@@ -118,9 +122,19 @@ def _import_gizmo(obj, data, collection):
     if owner is None:
         return
     create_pads(obj, read_pads(owner), collection)
-    animation_file = f"{owner.prop('animationFile') or ''}.van"
-    if data.exists(animation_file):
-        import_animations(obj, read_animations(data.read(animation_file)))
+    for member in [obj, *obj.children_recursive]:
+        if member.type == "MESH" and member.mt2.role == "NONE":
+            member[MESH_HASH_KEY] = mesh_hash(member)
+    animations = game_animations(f"{owner.prop('animationFile') or ''}.van")
+    if animations:
+        import_animations(obj, animations)
+
+
+def _import_bridge(obj, data, collection):
+    rel = variant_path(obj.mt2.theme)
+    bridge = read_bridge(data.read(rel)) if data.exists(rel) else None
+    if bridge is not None:
+        import_bridge_data(obj, bridge, collection)
 
 
 def _import_creature(obj, data, variant_rel: str, collection):
@@ -143,21 +157,8 @@ def _import_pads(obj, data, variant_rel: str, collection):
 def _import_obstruction(obj, rel: str, data, collection):
     folder, name = rel.rsplit("/", 1) if "/" in rel else ("", rel)
     obs_rel = f"{folder}/{obs_file_name(name)}"
-    if not data.exists(obs_rel):
-        return
-    polygons = read_obstruction(data.read(obs_rel).decode("latin-1"))
-    vertices, faces = [], []
-    for polygon in polygons:
-        faces.append(tuple(range(len(vertices), len(vertices) + len(polygon))))
-        vertices += [(*swap_ground(point), 0.0) for point in reversed(polygon)]
-    mesh = bpy.data.meshes.new(f"{obj.name} obstruction")
-    mesh.from_pydata(vertices, [], faces)
-    shape = bpy.data.objects.new(f"{obj.name} obstruction", mesh)
-    collection.objects.link(shape)
-    shape.parent = obj
-    shape.mt2.role = "OBSTRUCTION"
-    shape.display_type = "WIRE"
-    shape.hide_render = True
+    if data.exists(obs_rel):
+        create_obstruction_shape(obj, read_obstruction(data.read(obs_rel).decode("latin-1")), collection)
 
 
 def _select(context, obj):
