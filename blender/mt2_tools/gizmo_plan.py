@@ -5,7 +5,7 @@ from .anim_objects import export_animation, is_changed, owned_actions, unmatched
 from .costume_objects import MESH_HASH_KEY, mesh_hash
 from .mt2model import model, records
 from .mt2model.animations import DOOR_SEQUENCE, Animation, pose_jumps, read_animations, write_animations
-from .mt2model.rigs import GIZMO_ANIMATIONS, merge_animations
+from .mt2model.rigs import GIZMO_ANIMATIONS, merge_animations, mod_animations
 from .mt2model.validate import Finding
 from .rig_objects import game_animations
 
@@ -53,7 +53,9 @@ def plan_game_gizmo(result):
                                                   "Change the game's to make a new gizmo with them"))
     check_sequence(result, merge_animations(game_animations(result.rel), changed), game_reference(result.rel))
     own = project.read_text(game.project_dir(), result.rel)
-    result.texts[result.rel] = write_animations(merge_animations(read_animations(own) if own else [], changed))
+    animations = mod_animations(game_reference(result.rel), read_animations(own) if own else [], changed,
+                                root.mt2.standalone)
+    result.texts[result.rel] = write_animations(animations)
 
 
 def game_reference(rel: str) -> list[Animation]:

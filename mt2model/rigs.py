@@ -1,5 +1,5 @@
 from . import records
-from .animations import Animation
+from .animations import Animation, write_animations
 
 SEQUENCES = ("attack", "attack_double", "attack_heavy", "attack_spin", "attack_headbutt", "attack_shot", "attack_bow",
              "cast", "cast_force", "cast_charge", "cast_swish")
@@ -29,6 +29,15 @@ def merge_animations(base: list[Animation], changed: list[Animation]) -> list[An
     merged = [by_name.pop(a.name, a) for a in base]
 
     return merged + list(by_name.values())
+
+
+def mod_animations(game: list[Animation], own: list[Animation], changed: list[Animation],
+                   standalone: bool) -> list[Animation]:
+    game_text = {a.name: write_animations([a]) for a in game}
+    kept = [a for a in own if game_text.get(a.name) != write_animations([a])]
+    mod = merge_animations(kept, changed)
+
+    return merge_animations(game, mod) if standalone else mod
 
 
 def rename_nodes(animations: list[Animation], renames: dict[str, str]) -> list[Animation]:

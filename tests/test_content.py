@@ -10,10 +10,11 @@ from mt2model.formats import layout
 from mt2model.gamedata import GameData
 from mt2model.naming import dungeon_theme_name
 from mt2model.recolor import remap_colors
-from mt2model.rigs import CHARACTER_ANIMATIONS, creature_costume, creature_type, merge_animations, rename_nodes
+from mt2model.rigs import (CHARACTER_ANIMATIONS, creature_costume, creature_type, merge_animations, mod_animations,
+                            rename_nodes)
 from mt2model.themes import theme_props
 from mt2model.variants import Creature, read_creature, set_creature
-from mt2model.vehicle_tool import offer_vehicle, offered_vehicles
+from mt2model.vehicle_tool import offer_vehicle, offered_vehicles, vehicle_tool_file
 
 
 class ArtPackTests(unittest.TestCase):
@@ -40,6 +41,14 @@ class VehicleToolTests(unittest.TestCase):
     def test_names_are_added_once(self):
         text = offer_vehicle(offer_vehicle("", "m_raft"), "m_blimp")
         self.assertEqual(offered_vehicles(offer_vehicle(text, "m_raft")), ["m_raft", "m_blimp"])
+
+    def test_standalone_keeps_the_game_file(self):
+        game = 'mmoCursorBehaviourBuild\n{\n\tname "@Build";\n}\n' + offer_vehicle("", "ship")
+        own = offer_vehicle("", "m_raft")
+        text = vehicle_tool_file(game, own, "m_blimp", standalone=True)
+        self.assertIn("@Build", text)
+        self.assertEqual(offered_vehicles(text), ["ship", "m_raft", "m_blimp"])
+        self.assertEqual(offered_vehicles(vehicle_tool_file(game, own, "m_blimp", standalone=False)), ["m_raft", "m_blimp"])
 
 
 class DungeonThemeTests(unittest.TestCase):
@@ -72,6 +81,15 @@ class RigTests(unittest.TestCase):
         base = [Animation("idle"), Animation("run")]
         merged = merge_animations(base, [Animation("run", "Loop"), Animation("death")])
         self.assertEqual([(a.name, a.playback) for a in merged], [("idle", "Once"), ("run", "Loop"), ("death", "Once")])
+
+    def test_standalone_animations(self):
+        game = [Animation("idle"), Animation("run")]
+        own = [Animation("idle"), Animation("run", "Loop")]
+        changed = [Animation("death")]
+        self.assertEqual([(a.name, a.playback) for a in mod_animations(game, own, changed, standalone=True)],
+                         [("idle", "Once"), ("run", "Loop"), ("death", "Once")])
+        self.assertEqual([(a.name, a.playback) for a in mod_animations(game, own, changed, standalone=False)],
+                         [("run", "Loop"), ("death", "Once")])
 
     def test_costume_gets_its_rig(self):
         template = 'mmoCostume {\n\tname "bear";\n\tactorName "quadruped";\n\tcostumePart {\n\t}\n}\n'

@@ -12,6 +12,7 @@ from .creature_spot import is_flight_point
 from .door_preview import door_preview_action, is_door
 from .gizmo_plan import edits_game_gizmo, is_game_gizmo
 from .mt2model.naming import target_problems
+from .rig_objects import game_rigs, rig_name
 
 LEVEL_ICONS = {"error": "ERROR", "warning": "INFO", "info": "CHECKMARK"}
 CHARACTER_WIDTH = 7.5
@@ -21,7 +22,7 @@ ASSET_FIELDS = {
     "tagged": ("tag_place", "tag_kind", "tag_small", "tag_extra"),
     "weapon": ("weapon_category", "item_level"),
     "building": ("building_dir", "display_name"),
-    "vehicle": ("vehicle_kind", "display_name", "description"),
+    "vehicle": ("vehicle_kind", "display_name", "description", "standalone"),
     "gizmo": ("gizmo_dir",),
     "modular": ("theme", "slot"),
     "wall": ("theme", "wall_piece"),
@@ -114,10 +115,21 @@ def _fields(root) -> list[str]:
         fields += ["creature", "creature_animation"]
     if is_bridge_span(root):
         fields.append("fully_obstructed")
+    if s.asset == "costume" and _keeps_game_rig(root):
+        fields.append("standalone")
     if is_game_gizmo(root):
-        fields = ["edit_game"] if s.edit_game else fields + ["edit_game"]
+        fields = ["edit_game", "standalone"] if s.edit_game else fields + ["edit_game"]
 
     return fields
+
+
+def _keeps_game_rig(costume) -> bool:
+    data = game.game_data()
+    if data is None:
+        return False
+    rigs = game_rigs(data)
+
+    return rig_name(costume, bpy.context.scene.mt2.mod_id, rigs) in rigs
 
 
 def _is_vanilla_category(category: str) -> bool:

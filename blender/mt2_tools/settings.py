@@ -277,6 +277,12 @@ class MT2_ObjectSettings(bpy.types.PropertyGroup):
                      "Every gizmo of this style plays them. For chests and barrels, the first frame of open is "
                      "how they look closed"),
     )
+    standalone: bpy.props.BoolProperty(
+        name="Standalone", update=_forget_findings,
+        description=("Write the game's whole file with this mod's changes in it, so the mod works without the "
+                     "mod manager. Other mods that change the same file can then undo this one's changes, or the "
+                     "other way round"),
+    )
     rig: bpy.props.StringProperty(
         name="Rig", update=_forget_findings,
         description=("The skeleton the costume moves with. Keep a game rig's name to use it, or type a new name "

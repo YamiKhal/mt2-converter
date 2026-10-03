@@ -19,6 +19,16 @@ def offer_vehicle(existing: str, vehicle: str) -> str:
     return records.render(parsed)
 
 
+def vehicle_tool_file(game: str, own: str, vehicle: str, standalone: bool) -> str:
+    if not standalone:
+        return offer_vehicle(own, vehicle)
+    text = game
+    for name in [*offered_vehicles(own), vehicle]:
+        text = offer_vehicle(text, name)
+
+    return text
+
+
 def offered_vehicles(text: bytes | str) -> list[str]:
     tool = next((r for r in records.parse(text) if r.label == TOOL_LABEL and r.prop("name") == TOOL_NAME), None)
     line = tool.child("typeNames") if tool else None

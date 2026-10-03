@@ -24,7 +24,7 @@ from .mt2model.i18n import set_strings, strings_path
 from .mt2model.naming import ExportTarget, model_path, prefixed, target_problems
 from .mt2model.obstruction import obs_file_name, write_obstruction
 from .mt2model.validate import Finding, has_errors, validate
-from .mt2model.vehicle_tool import TOOL_FILE, offer_vehicle
+from .mt2model.vehicle_tool import TOOL_FILE, vehicle_tool_file
 from .mt2model.variants import building_kinds, derive_variant, display_name_key, variant_files
 from .rig_objects import bone_renames
 from .rig_plan import needs_own_parts, plan_creature_type, plan_flight_creature, plan_rig
@@ -213,7 +213,9 @@ def _plan_vehicle(result: Plan, target: ExportTarget):
                                                         label="mmoVehicleDefinition")
     if pads is not None:
         result.findings += [Finding(level, message) for level, message in pad_problems(pads)]
-    result.texts[TOOL_FILE] = offer_vehicle(_read_project_text(TOOL_FILE), stem)
+    game_tool = data.sources[-1].read(TOOL_FILE).decode("latin-1")
+    result.texts[TOOL_FILE] = vehicle_tool_file(game_tool, _read_project_text(TOOL_FILE), stem,
+                                                result.root_obj.mt2.standalone)
     _plan_display_name(result, target, f"vehicle_definition_{stem}_displayname")
     _plan_string(result, target, f"vehicle_definition_{stem}_description", result.root_obj.mt2.description, "Description")
 

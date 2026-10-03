@@ -10,7 +10,7 @@ from .mt2model.costume import GREY_PALETTE, read_defaults
 from .mt2model.costume_files import read_costume, rename_bones
 from .mt2model.naming import clean_word, prefixed
 from .mt2model.rigs import (CREATURE_FOLDERS, STANDARD_BONES, creature_costume, creature_type, merge_animations,
-                            missing_animations)
+                            missing_animations, mod_animations)
 from .mt2model.validate import Finding
 from .mt2model.variants import Creature, read_creature, set_creature
 from .rig_objects import (bone_names, bone_renames, game_rigs, moved_bones, renamed_from, rig_name, skeleton_node,
@@ -60,8 +60,12 @@ def _plan_game_rig(result, rig: str, source: str):
                                                   f"keep them to this costume"))
     changed = [a for a in (export_animation(costume, a) for a in owned_actions(costume) if is_changed(a)) if a.timelines]
     if changed:
-        own = project.read_text(game.project_dir(), f"skeletons/{rig}.van")
-        result.texts[f"skeletons/{rig}.van"] = write_animations(merge_animations(read_animations(own), changed))
+        rel = f"skeletons/{rig}.van"
+        own = project.read_text(game.project_dir(), rel)
+        vanilla = data.sources[-1]
+        game_rig = read_animations(vanilla.read(rel)) if vanilla.exists(rel) else []
+        animations = mod_animations(game_rig, read_animations(own) if own else [], changed, costume.mt2.standalone)
+        result.texts[rel] = write_animations(animations)
 
 
 def _plan_own_rig(result, target, rig: str, source: str):
