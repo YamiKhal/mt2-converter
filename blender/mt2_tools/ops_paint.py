@@ -2,19 +2,24 @@ import bpy
 
 from .mesh_data import (MeshOperator, attribute_values, color_attribute, editable_mesh, face_colors, loop_faces,
                         loop_vertices, mesh_objects)
+from .mt2model.colors import srgb_to_linear
 from .recent_colors import remember_color
 
 
 class MT2_OT_fill_color(MeshOperator):
     bl_idname = "mt2.fill_color"
     bl_label = "Fill"
-    bl_description = "Paint the selected faces (edit mode) or the whole mesh with the color"
+    bl_description = ("Paint the selected faces (edit mode) or the whole mesh with the color. A point light takes it "
+                      "as its color")
 
     def execute(self, context):
         if not self.faces_to_change(context):
             return {"CANCELLED"}
         color = tuple(context.scene.mt2.paint_color)
         for obj in mesh_objects(context):
+            if obj.mt2.role == "LIGHT":
+                obj.color = srgb_to_linear(color)
+                continue
             with editable_mesh(obj) as (mesh, selected):
                 attribute = color_attribute(mesh)
                 values, per_corner = attribute_values(attribute)
@@ -38,6 +43,9 @@ class MT2_OT_flat_colors(MeshOperator):
         if not self.faces_to_change(context):
             return {"CANCELLED"}
         for obj in mesh_objects(context):
+            if obj.mt2.role == "LIGHT":
+                obj.color = srgb_to_linear(color)
+                continue
             with editable_mesh(obj) as (mesh, selected):
                 attribute = color_attribute(mesh)
                 if attribute.domain != "CORNER":

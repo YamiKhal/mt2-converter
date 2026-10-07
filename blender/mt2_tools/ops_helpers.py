@@ -1,11 +1,13 @@
 import math
 
+import bmesh
 import bpy
 from mathutils import Matrix, Vector
 
 from . import convert_out, game, shading
-from .convert_out import asset_root
 from .bridge_objects import NEW_RAMP_PATH, create_ramp_path, is_ramp, ramp_path_object
+from .convert_out import asset_root
+from .costume_objects import mark_part
 from .creature_spot import create_spot, is_flight_point, spot_of
 from .mt2model.assets import asset_type
 from .mt2model.axes import swap_ground
@@ -16,6 +18,8 @@ from .pad_objects import new_entrance, new_pad
 from .socket_objects import new_socket
 
 LIGHT_RADIUS_PER_DIAGONAL = 0.375
+LIGHT_SEGMENTS = 16
+LIGHT_RINGS = 8
 PAD_ASSETS = ("building", "vehicle")
 
 _costume_items: list = []
@@ -45,14 +49,14 @@ class MT2_OT_make_asset(bpy.types.Operator):
 
     def execute(self, context):
         obj = context.active_object
+        if obj.parent is not None and obj.parent.mt2.role == "BONE":
+            mark_part(obj)
+            return {"FINISHED"}
         obj.mt2.is_asset = True
         obj.mt2.role = "NONE"
         if not obj.mt2.name:
             obj.mt2.name = clean_word(obj.name)
         obj.mt2.normalise = True
-        if obj.parent is not None and obj.parent.mt2.role == "BONE":
-            obj.mt2.asset = "costume_part"
-            obj.mt2.bone = obj.parent.get("mt2_node", obj.parent.name)
 
         return {"FINISHED"}
 
@@ -60,7 +64,7 @@ class MT2_OT_make_asset(bpy.types.Operator):
 class MT2_OT_add_light(bpy.types.Operator):
     bl_idname = "mt2.add_light"
     bl_label = "Add point light"
-    bl_description = "Add a helper box that becomes a scenery point light at its centre; its color is the object color"
+    bl_description = "Add a helper sphere that becomes a scenery point light at its centre. Paint ▸ Fill sets its color"
     bl_options = {"REGISTER", "UNDO"}
 
     radius: bpy.props.FloatProperty(name="Radius", description="Vanilla lamps reach 35 to 50", min=0.1, default=45.0)
@@ -72,10 +76,11 @@ class MT2_OT_add_light(bpy.types.Operator):
 
     def execute(self, context):
         half = self.radius / LIGHT_RADIUS_PER_DIAGONAL / (2 * math.sqrt(3))
-        corners = [(x, y, z) for x in (-half, half) for y in (-half, half) for z in (-half, half)]
-        faces = [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)]
         mesh = bpy.data.meshes.new("MT2 light")
-        mesh.from_pydata(corners, [], faces)
+        sphere = bmesh.new()
+        bmesh.ops.create_uvsphere(sphere, u_segments=LIGHT_SEGMENTS, v_segments=LIGHT_RINGS, radius=half)
+        sphere.to_mesh(mesh)
+        sphere.free()
         obj = _helper(context, "Point light", mesh, "LIGHT", asset_root(context.active_object))
         obj.location = context.scene.cursor.location
         obj.color = self.color

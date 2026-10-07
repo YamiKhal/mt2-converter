@@ -574,6 +574,41 @@ class NewModels(unittest.TestCase):
         self.assertAlmostEqual(written[0].entrances[0].points[0][2], -10.0, places=4)
         bpy.context.scene.cursor.location = (0, 0, 0)
 
+    def test_mod_id_is_cleaned_as_typed(self):
+        settings = bpy.context.scene.mt2
+        settings.mod_id = "My Mod"
+        self.assertEqual(settings.mod_id, "my_mod")
+        settings.mod_id = "test_models"
+
+    def test_flat_shading_drops_smooth_shading_and_custom_normals(self):
+        cube = add_cube("Smooth")
+        game_material(cube, "Material_tint")
+        bpy.ops.mt2.make_asset()
+        bpy.ops.object.shade_smooth()
+        cube.data.normals_split_custom_set([(0.0, 0.0, 1.0)] * len(cube.data.loops))
+        select_faces(cube, [0])
+        self.assertEqual(bpy.ops.mt2.flat_shading(), {"FINISHED"})
+        bpy.ops.object.mode_set(mode="OBJECT")
+        self.assertEqual([p.use_smooth for p in cube.data.polygons], [False] + [True] * 5)
+        self.assertTrue(cube.data.has_custom_normals)
+        face = cube.data.polygons[0]
+        for corner in face.loop_indices:
+            self.assertAlmostEqual(cube.data.corner_normals[corner].vector.dot(face.normal), 1.0, places=4)
+        self.assertAlmostEqual(cube.data.corner_normals[cube.data.polygons[1].loop_start].vector.z, 1.0, places=4)
+        select_only(cube)
+        self.assertEqual(bpy.ops.mt2.flat_shading(), {"FINISHED"})
+        self.assertFalse(cube.data.has_custom_normals)
+        self.assertFalse(any(p.use_smooth for p in cube.data.polygons))
+
+    def test_two_parts_on_one_bone_are_refused(self):
+        bpy.ops.mt2.import_costume(costume="costumes/knight.costume")
+        root = bpy.context.view_layer.objects.active
+        torso = next(o for o in root.children_recursive if o.mt2.role == "BONE" and o.get("mt2_node") == "torso")
+        extra = add_cube("Extra", size=0.3)
+        extra.parent = torso
+        bpy.ops.mt2.make_asset()
+        self.assertTrue(any("both on torso" in f.message for f in pipeline.plan(root).findings))
+
     def test_costume_round_trip(self):
         bpy.ops.mt2.import_costume(costume="costumes/knight.costume")
         root = bpy.context.view_layer.objects.active
@@ -1283,6 +1318,15 @@ class UI(unittest.TestCase):
         select_only(broken)
         broken.mt2.name = "renamed"
         self.assertFalse(bpy.context.scene.mt2.findings)
+
+    def test_setup_shows_while_the_mod_id_is_invalid(self):
+        reset_scene()
+        settings = bpy.context.scene.mt2
+        settings.mod_id = "ui_test"
+        self.assertNotIn(("operator", "mt2.setup"), self.draw_all())
+        settings.mod_id = "9lives"
+        self.assertIn(("operator", "mt2.setup"), self.draw_all())
+        settings.mod_id = "ui_test"
 
     def test_panels_draw_for_every_asset_type(self):
         reset_scene()

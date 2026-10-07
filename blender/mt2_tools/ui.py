@@ -11,7 +11,7 @@ from .costume_objects import costume_root, is_loose_part
 from .creature_spot import is_flight_point
 from .door_preview import door_preview_action, is_door
 from .gizmo_plan import edits_game_gizmo, is_game_gizmo
-from .mt2model.naming import target_problems
+from .mt2model.naming import mod_id_problem, target_problems
 from .rig_objects import game_rigs, rig_name
 
 LEVEL_ICONS = {"error": "ERROR", "warning": "INFO", "info": "CHECKMARK"}
@@ -80,7 +80,7 @@ class MT2_PT_asset(_Panel):
         layout = self.layout
         settings = context.scene.mt2
         root = asset_root(context.active_object)
-        if not settings.mod_id or game.project_dir() is None:
+        if mod_id_problem(settings.mod_id) or game.project_dir() is None:
             layout.operator("mt2.setup", icon="ERROR")
         if root is None or is_loose_part(context.active_object):
             layout.operator("mt2.make_asset", icon="ADD")
@@ -308,6 +308,7 @@ class MT2_PT_helpers(_Panel):
         column = layout.column(align=True)
         column.operator("mt2.bake_colors", icon="RENDER_STILL")
         column.operator("mt2.flat_colors", icon="MOD_TRIANGULATE")
+        column.operator("mt2.flat_shading", icon="NORMALS_FACE")
         column = layout.column(align=True)
         if asset in LIGHT_ASSETS:
             column.operator("mt2.add_light", icon="LIGHT_POINT")

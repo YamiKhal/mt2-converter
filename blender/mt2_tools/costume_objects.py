@@ -5,10 +5,12 @@ import numpy as np
 from mathutils import Matrix
 
 from . import convert_in, game, shading
+from .convert_out import GEOMETRY_TYPES
 from .mt2model import model
 from .mt2model.axes import AXES_VERSION, swap_position, swap_scale
 from .mt2model.costume import GREY_PALETTE, read_defaults
 from .mt2model.costume_files import PartPlacement, read_costume
+from .mt2model.naming import clean_word
 from .palette import show_palette
 
 MESH_HASH_KEY = "mt2_mesh_hash"
@@ -115,6 +117,16 @@ def loose_parts(root: bpy.types.Object) -> list[bpy.types.Object]:
     return [o for o in root.children_recursive if is_loose_part(o)]
 
 
+def mark_part(obj: bpy.types.Object):
+    obj.mt2.is_asset = True
+    obj.mt2.role = "NONE"
+    obj.mt2.asset = "costume_part"
+    obj.mt2.bone = obj.parent.get("mt2_node", obj.parent.name)
+    if not obj.mt2.name:
+        obj.mt2.name = clean_word(obj.name)
+    obj.mt2.normalise = True
+
+
 def placement(part: bpy.types.Object, model_file: str, extent: float) -> PartPlacement:
     bone = part.parent
     offset = bone.matrix_parent_inverse
@@ -153,7 +165,10 @@ def mesh_hash(obj: bpy.types.Object) -> str:
 
 
 def is_unchanged(part: bpy.types.Object) -> bool:
-    return bool(part.mt2.source_path) and part.get(MESH_HASH_KEY) == mesh_hash(part) and sits_on_bone(part)
+    joined = any(c.type in GEOMETRY_TYPES and c.mt2.role == "NONE" for c in part.children_recursive)
+
+    return (bool(part.mt2.source_path) and not joined and part.get(MESH_HASH_KEY) == mesh_hash(part)
+            and sits_on_bone(part))
 
 
 def sits_on_bone(part: bpy.types.Object) -> bool:

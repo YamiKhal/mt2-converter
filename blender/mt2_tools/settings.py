@@ -4,6 +4,7 @@ from . import game
 from .anim_objects import NAME_KEY, PLAYBACK_KEY, REST_POSE, assign, owned_actions, show_rest_pose
 from .mt2model.animations import PLAYBACK_TYPES
 from .mt2model.dungeons import SHAPES
+from .mt2model.naming import clean_word
 from .mt2model.assets import ASSET_TYPES, MODULAR_SLOTS, PLACEABLE_SCENERY_TYPES, TAG_KINDS, TAG_PLACES
 from .mt2model.variants import building_kinds, gizmo_dirs
 from .door_preview import PREVIEW_NAME, clear_door_preview, door_preview_action
@@ -98,6 +99,12 @@ def building_dir_items(self=None, context=None):
     return _building_items
 
 
+def _clean_mod_id(self, context):
+    cleaned = clean_word(self.mod_id)
+    if cleaned != self.mod_id:
+        self.mod_id = cleaned
+
+
 def _forget_findings(self, context):
     scene = context.scene if context else None
     if scene is not None and scene.mt2.findings_root == self.id_data:
@@ -140,6 +147,7 @@ class MT2_SceneSettings(bpy.types.PropertyGroup):
     mod_id: bpy.props.StringProperty(
         name="Mod id",
         description="The manifest id; prefixes every exported file name so it can't collide with vanilla or other mods",
+        update=_clean_mod_id,
     )
     paint_color: bpy.props.FloatVectorProperty(
         name="Color", subtype="COLOR_GAMMA", size=4, min=0.0, max=1.0, default=(0.8, 0.8, 0.8, 1.0),

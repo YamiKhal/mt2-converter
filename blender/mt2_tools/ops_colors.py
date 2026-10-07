@@ -2,6 +2,7 @@ import bpy
 import numpy as np
 
 from .mesh_data import color_attribute, editable_mesh, face_colors
+from .mt2model.colors import linear_to_srgb
 
 
 class MT2_OT_use_color(bpy.types.Operator):
@@ -24,15 +25,20 @@ class MT2_OT_use_color(bpy.types.Operator):
 class MT2_OT_pick_color(bpy.types.Operator):
     bl_idname = "mt2.pick_color"
     bl_label = "Pick"
-    bl_description = "Make the color of the active face (edit mode) the paint color"
+    bl_description = "Make the color of the active face (edit mode) or of the selected point light the paint color"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(cls, context):
-        return context.mode == "EDIT_MESH"
+        obj = context.active_object
+
+        return context.mode == "EDIT_MESH" or (obj is not None and obj.mt2.role == "LIGHT")
 
     def execute(self, context):
         obj = context.active_object
+        if obj.mt2.role == "LIGHT":
+            context.scene.mt2.paint_color = linear_to_srgb(obj.color)
+            return {"FINISHED"}
         with editable_mesh(obj) as (mesh, _):
             chosen = np.empty(len(mesh.polygons), dtype=bool)
             mesh.polygons.foreach_get("select", chosen)

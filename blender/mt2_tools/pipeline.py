@@ -52,11 +52,12 @@ def target_for(root_obj: bpy.types.Object) -> ExportTarget:
     mod_id = bpy.context.scene.mt2.mod_id
     costume = costume_root(root_obj.parent) if s.asset == "costume_part" else None
     costume_set = prefixed(mod_id, costume.mt2.name or costume.name) if costume else s.costume_set
+    bone = root_obj.parent.get("mt2_node", root_obj.parent.name) if costume else s.bone
 
     return ExportTarget(
         asset=s.asset, name=s.name or root_obj.name, mod_id=mod_id,
         scenery_type=s.scenery_type, weapon_category=s.weapon_category, item_level=s.item_level,
-        costume_set=costume_set, bone=s.bone, theme=s.theme, slot=s.slot, building_dir=s.building_dir,
+        costume_set=costume_set, bone=bone, theme=s.theme, slot=s.slot, building_dir=s.building_dir,
         wall_piece=s.wall_piece, tag_place=s.tag_place, tag_kind=s.tag_kind, tag_small=s.tag_small,
         tag_extra=s.tag_extra.split(), raw_path=s.raw_path, vehicle_kind=s.vehicle_kind,
         gizmo_dir=s.gizmo_dir, dungeon_theme=s.dungeon_theme, bridge_piece=s.bridge_piece, tile_kind=s.tile_kind, shape=s.shape,
@@ -97,7 +98,7 @@ def plan(root_obj: bpy.types.Object) -> Plan:
         result.findings.append(Finding("info", f"normalised; use modelScale {scale:.6f} for this part in the .costume"))
     result.findings += validate(result.built.root, asset, game.catalog(), replaces_vanilla=data.is_vanilla(result.rel))
     previous = root_obj.mt2.exported_path
-    if previous and previous != result.rel:
+    if previous and previous != result.rel and target.asset != "costume_part":
         result.findings.append(Finding("error", f"this asset was exported as {previous}. Saves find models by file name, "
                                                 f"so renaming breaks it where players placed it. "
                                                 f"Use 'Forget previous export' if this is meant to be a new model"))
@@ -259,11 +260,18 @@ def _plan_costume(result: Plan, target: ExportTarget):
     for loose in loose_parts(result.root_obj):
         result.findings.append(Finding("warning", f"'{loose.name}' isn't a costume part yet, so it's left out; "
                                                   f"select it and use Make asset", loose.name))
+    taken: dict[str, str] = {}
     for part in parts_of(result.root_obj):
         if part.parent is None or part.parent.mt2.role != "BONE":
             result.findings.append(Finding("warning", f"'{part.name}' isn't parented to a bone, so it's left out",
                                            part.name))
             continue
+        bone = part.parent.get("mt2_node", part.parent.name)
+        if bone in taken:
+            result.findings.append(Finding("error", f"'{taken[bone]}' and '{part.name}' are both on {bone}; the game "
+                                                    f"shows one part per bone, so join them (Ctrl + J)", part.name))
+            continue
+        taken[bone] = part.name
         if is_unchanged(part) and not own_parts:
             relative = part.parent.matrix_world.inverted() @ part.matrix_world
             placements.append(placement(part, part.mt2.source_path, relative.to_scale().x))
