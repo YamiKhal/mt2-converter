@@ -2,10 +2,14 @@
 
 Each `## MT2 Tools Patch - <version>` section becomes that version's GitHub release notes (`python scripts/release.py`), and MT2 Tools shows them when it offers the update.
 
-## MT2 Tools Patch - 0.5.9
+## MT2 Tools Patch - 0.6.0
 ### New
 - **Updates from GitHub**: MT2 Tools now checks for a new release when Blender starts. If there is one, an **Update to …** button shows at the top of the MT2 tab: one click downloads and installs it, and hovering over it shows what's new. You can turn the check off, or run it by hand, in the add-on preferences. Needs Blender's *Allow Online Access* (Preferences ▸ System ▸ Network).
 
+### Fixed
+- Potenial crash that could occur if you use the helper "Flat Colors"
+
+## MT2 Tools Patch - 0.5.9
 ### Fixed
 - Fixed the costme glow material appearing on non-costume assets.
 
