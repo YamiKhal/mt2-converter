@@ -10,6 +10,7 @@ class MaterialInfo:
     kind: str
     textured: bool
     texture: str | None = None
+    glow: bool = False
 
 
 PALETTE_SLOTS = {"costume": 8, "dungeon": 4}
@@ -35,7 +36,7 @@ def classify(name: str, text: str) -> MaterialInfo:
     else:
         kind = "vertex"
 
-    return MaterialInfo(name, kind, textured, texture)
+    return MaterialInfo(name, kind, textured, texture, material.prop("glow") == "true")
 
 
 def _texture_before_shader(material: records.Record) -> bool:

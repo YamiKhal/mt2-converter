@@ -160,6 +160,12 @@ def mesh_hash(obj: bpy.types.Object) -> str:
         values = np.empty(len(mesh.loops) * 2, dtype=np.float32)
         layer.data.foreach_get("uv", values)
         digest.update(np.round(values, 5).tobytes())
+    if len(obj.material_slots) > 1:
+        slots = np.empty(len(mesh.polygons), dtype=np.int32)
+        mesh.polygons.foreach_get("material_index", slots)
+        digest.update(slots.tobytes())
+    for slot in obj.material_slots:
+        digest.update((slot.material.mt2.game_name if slot.material else "").encode())
 
     return digest.hexdigest()
 

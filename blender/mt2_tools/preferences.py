@@ -1,6 +1,6 @@
 import bpy
 
-from . import game
+from . import game, updates
 from .mt2model import detect
 
 
@@ -17,11 +17,23 @@ class MT2_Preferences(bpy.types.AddonPreferences):
         subtype="DIR_PATH",
         update=_changed,
     )
+    check_updates: bpy.props.BoolProperty(
+        name="Check for updates",
+        description="Look for a new MT2 Tools release on GitHub when Blender starts",
+        default=True,
+    )
 
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "game_path")
         layout.operator("mt2.detect_paths", icon="VIEWZOOM")
+        row = layout.row()
+        row.prop(self, "check_updates")
+        row.operator("mt2.check_updates", icon="FILE_REFRESH")
+        if updates.available() is not None:
+            row.operator("mt2.install_update", icon="IMPORT")
+        elif updates.status():
+            row.label(text=updates.status())
 
 
 class MT2_OT_detect_paths(bpy.types.Operator):

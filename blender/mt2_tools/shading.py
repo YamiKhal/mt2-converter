@@ -12,17 +12,19 @@ SPECIAL_COLORS = {
 }
 
 
-def game_material(name: str, kind: str, image: bpy.types.Image | None = None) -> bpy.types.Material:
+def game_material(name: str, kind: str, image: bpy.types.Image | None = None,
+                  glow: bool = False) -> bpy.types.Material:
     material = next((m for m in bpy.data.materials if m.mt2.game_name == name), None)
     if material is None:
         material = bpy.data.materials.new(name)
         material.mt2.game_name = name
-        setup(material, kind, image=image)
+        setup(material, kind, image=image, glow=glow)
 
     return material
 
 
-def setup(material: bpy.types.Material, kind: str, palette=None, image: bpy.types.Image | None = None):
+def setup(material: bpy.types.Material, kind: str, palette=None, image: bpy.types.Image | None = None,
+          glow: bool = False):
     if material.node_tree is None:
         material.use_nodes = True
     tree = material.node_tree
@@ -33,7 +35,7 @@ def setup(material: bpy.types.Material, kind: str, palette=None, image: bpy.type
         _flat(tree, output, SPECIAL_COLORS[kind])
         material.diffuse_color = SPECIAL_COLORS[kind]
     elif kind in PALETTE_SLOTS:
-        _palette(tree, output, palette or GREY_PALETTE, PALETTE_SLOTS[kind])
+        _palette(tree, output, palette or GREY_PALETTE, PALETTE_SLOTS[kind], glow)
     else:
         _vertex(tree, output, emissive=kind == "emissive", image=image)
     material.mt2["kind"] = kind
@@ -96,7 +98,7 @@ def _flat(tree, output, color):
     tree.links.new(shader.outputs[0], output.inputs["Surface"])
 
 
-def _palette(tree, output, palette, slots: int):
+def _palette(tree, output, palette, slots: int, glow: bool):
     uv = tree.nodes.new("ShaderNodeUVMap")
     uv.location = (-600, 0)
     split = tree.nodes.new("ShaderNodeSeparateXYZ")
@@ -128,4 +130,7 @@ def _palette(tree, output, palette, slots: int):
     tree.links.new(ramp.outputs["Color"], multiply.inputs[6])
     tree.links.new(shade.outputs["Result"], multiply.inputs[7])
     tree.links.new(multiply.outputs[2], bsdf.inputs["Base Color"])
+    if glow:
+        tree.links.new(multiply.outputs[2], bsdf.inputs["Emission Color"])
+        bsdf.inputs["Emission Strength"].default_value = 1.0
     tree.links.new(bsdf.outputs[0], output.inputs["Surface"])

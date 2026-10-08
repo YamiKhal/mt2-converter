@@ -1,12 +1,20 @@
 from pathlib import Path
 
 import bpy
+import numpy as np
 from bpy_extras.io_utils import ImportHelper
 
-from . import game
+from . import game, project
+from .convert_out import asset_root
+from .costume_objects import costume_root
 from .game_materials import material_for
-from .mesh_data import color_attribute
+from .mesh_data import color_attribute, editable_mesh
+from .mt2model.glow import COSTUME_SHADER, glow_material, glow_shader
+from .mt2model.naming import prefixed
+from .palette import show_palette
 from .textured_materials import TEXTURE_SUFFIXES, write_textured_material
+
+GLOW_NAME = "costume_glow"
 
 _material_items: list = []
 
@@ -108,4 +116,65 @@ class MT2_OT_new_textured_material(_MeshOperator, ImportHelper):
         return {"FINISHED"}
 
 
-CLASSES = (MT2_OT_setup_material, MT2_OT_pick_game_material, MT2_OT_new_textured_material)
+class MT2_OT_costume_glow(_MeshOperator):
+    bl_idname = "mt2.costume_glow"
+    bl_label = "Glow"
+    bl_description = ("Make the selected faces (edit mode) or the whole mesh glow in their palette color, by day "
+                      "and by night. Writes the mod's glowing costume material and its shader")
+
+    @classmethod
+    def poll(cls, context):
+        return super().poll(context) and is_costume_mesh(context.active_object)
+
+    def execute(self, context):
+        folder = game.project_dir()
+        mod_id = context.scene.mt2.mod_id
+        data = game.game_data()
+        if folder is None or not mod_id or data is None:
+            self.report({"ERROR"}, "Set the game folder, the mod folder and the mod id first")
+            return {"CANCELLED"}
+        name = prefixed(mod_id, GLOW_NAME)
+        try:
+            _write_glow_files(folder, name, data.sources[-1])
+        except ValueError as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        obj = context.active_object
+        material = material_for(name)
+        with editable_mesh(obj) as (mesh, selected):
+            color_attribute(mesh)
+            if not mesh.materials:
+                mesh.materials.append(material_for("costume"))
+            if material.name not in mesh.materials:
+                mesh.materials.append(material)
+            slots = np.empty(len(mesh.polygons), dtype=np.int32)
+            mesh.polygons.foreach_get("material_index", slots)
+            slots[selected] = mesh.materials.find(material.name)
+            mesh.polygons.foreach_set("material_index", slots)
+        costume = costume_root(obj)
+        if costume is not None:
+            show_palette(costume)
+
+        return {"FINISHED"}
+
+
+def is_costume_mesh(obj: bpy.types.Object) -> bool:
+    root = asset_root(obj)
+
+    return costume_root(obj) is not None or (root is not None and root.mt2.asset == "costume_part")
+
+
+def _write_glow_files(folder: Path, name: str, vanilla):
+    shader = f"{name}_f.glsl"
+    files = {
+        f"materials/{name}.mat": glow_material(vanilla.read("materials/costume.mat").decode(), shader),
+        f"shaders/{shader}": glow_shader(vanilla.read(f"shaders/{COSTUME_SHADER}").decode()),
+    }
+    changed = [rel for rel, text in files.items() if project.read_text(folder, rel) != text]
+    for rel in changed:
+        project.write_text(folder, rel, files[rel])
+    if changed:
+        game.forget()
+
+
+CLASSES = (MT2_OT_setup_material, MT2_OT_pick_game_material, MT2_OT_new_textured_material, MT2_OT_costume_glow)

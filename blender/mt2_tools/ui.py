@@ -3,7 +3,7 @@ import textwrap
 
 import bpy
 
-from . import game, pipeline
+from . import game, pipeline, updates
 from .anim_objects import REST_POSE, owned_actions
 from .bridge_objects import is_bridge_span, is_ramp, ramp_path_object
 from .convert_out import asset_root
@@ -12,6 +12,7 @@ from .creature_spot import is_flight_point
 from .door_preview import door_preview_action, is_door
 from .gizmo_plan import edits_game_gizmo, is_game_gizmo
 from .mt2model.naming import mod_id_problem, target_problems
+from .ops_materials import is_costume_mesh
 from .rig_objects import game_rigs, rig_name
 
 LEVEL_ICONS = {"error": "ERROR", "warning": "INFO", "info": "CHECKMARK"}
@@ -58,6 +59,11 @@ class MT2_PT_import(_Panel):
 
     def draw(self, context):
         layout = self.layout
+        release = updates.available()
+        if release is not None:
+            row = layout.row(align=True)
+            row.operator("mt2.install_update", text=f"Update to {release.version}", icon="IMPORT")
+            row.operator("wm.url_open", text="", icon="URL").url = release.page
         if not game.preferences().game_path or game.game_data() is None:
             layout.operator("mt2.setup", icon="ERROR")
             return
@@ -286,6 +292,8 @@ class MT2_PT_materials(_Panel):
         row = layout.row(align=True)
         for name in ("Material_tint", "emissive", "costume"):
             row.operator("mt2.setup_material", text=name.replace("_tint", "")).name = name
+        if is_costume_mesh(context.active_object):
+            row.operator("mt2.costume_glow", text="glow")
         row.operator("mt2.new_textured_material", text="", icon="TEXTURE")
 
 

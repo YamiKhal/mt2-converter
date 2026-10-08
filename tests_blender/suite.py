@@ -609,6 +609,30 @@ class NewModels(unittest.TestCase):
         bpy.ops.mt2.make_asset()
         self.assertTrue(any("both on torso" in f.message for f in pipeline.plan(root).findings))
 
+    def test_glowing_faces_keep_their_palette_slot(self):
+        bpy.ops.mt2.import_costume(costume="costumes/knight.costume")
+        root = bpy.context.view_layer.objects.active
+        head = next(p for p in root.children_recursive if p.mt2.asset == "costume_part" and p.mt2.bone == "head")
+        faces = len(head.data.polygons)
+        select_faces(head, [0, 1, 2])
+        self.assertEqual(bpy.ops.mt2.costume_glow(), {"FINISHED"})
+        bpy.ops.object.mode_set(mode="OBJECT")
+        text = (PROJECT / "materials/test_models_costume_glow.mat").read_text()
+        self.assertIn("glow true", text)
+        self.assertIn('"test_models_costume_glow_f.glsl"', text)
+        shader = (PROJECT / "shaders/test_models_costume_glow_f.glsl").read_text()
+        self.assertIn("vec3 glowColor", shader)
+        indices = [p.material_index for p in head.data.polygons]
+        self.assertEqual(indices.count(1), 3)
+        self.assertEqual(indices.count(0), faces - 3)
+        plan = pipeline.plan(root)
+        self.assertTrue(plan.ok, [f.message for f in plan.findings])
+        fragments = plan.parts[0].built.root.fragments
+        self.assertEqual(sorted(f.material for f in fragments), ["costume", "test_models_costume_glow"])
+        self.assertTrue(all(f.format == "PNT" for f in fragments), [f.format for f in fragments])
+        self.assertEqual(bpy.ops.mt2.costume_glow(), {"FINISHED"})
+        self.assertEqual(len(head.data.materials), 2)
+
     def test_costume_round_trip(self):
         bpy.ops.mt2.import_costume(costume="costumes/knight.costume")
         root = bpy.context.view_layer.objects.active

@@ -2,7 +2,8 @@ import unittest
 
 from helpers import cube, fake_game
 from mt2model.assets import asset_type, guess_from_path
-from mt2model.materials import MaterialCatalog
+from mt2model.glow import glow_material, glow_shader
+from mt2model.materials import MaterialCatalog, classify
 from mt2model.naming import ExportTarget, model_path, prefixed, target_problems
 from mt2model.validate import has_errors, validate
 
@@ -69,6 +70,25 @@ class ValidateTests(unittest.TestCase):
         root.fragments[0].indices[0] = 99
 
         self.assertTrue(has_errors(validate(root, asset_type("scenery"), self.catalog)))
+
+    def test_glowing_costume_material_keeps_the_palette(self):
+        text = glow_material(self.catalog.data.read("materials/costume.mat").decode(), "test_costume_glow_f.glsl")
+        info = classify("test_costume_glow", text)
+        self.assertEqual((info.kind, info.glow), ("costume", True))
+        self.assertIn('"costume_v.glsl" "test_costume_glow_f.glsl"', text)
+        self.assertFalse(self.catalog.get("costume").glow)
+        self.assertEqual(glow_material(text, "test_costume_glow_f.glsl"), text)
+
+    def test_glow_shader_ignores_the_light(self):
+        shader = ("\tcolor.rgb = mix( color.rgb, frontColor.rgb, frontColor.a );\r\n"
+                  "\tcolor.rgb = shade(color.rgb);\r\n"
+                  "\tif ( distanceCull )\r\n")
+        glowing = glow_shader(shader)
+        self.assertLess(glowing.index("vec3 glowColor = color.rgb;"), glowing.index("shade("))
+        self.assertLess(glowing.index("shade("), glowing.index("max( color.rgb, mix( glowColor"))
+        self.assertLess(glowing.index("nowGlow = 1.0;"), glowing.index("if ( distanceCull )"))
+        with self.assertRaises(ValueError):
+            glow_shader("void main() {}")
 
     def test_palette_material_needs_uvs(self):
         self.assertTrue(has_errors(validate(cube("costume", "PN"), asset_type("costume_part"), self.catalog)))

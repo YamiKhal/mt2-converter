@@ -9,7 +9,14 @@ from .mt2model.assets import SPECIAL_MATERIALS
 
 
 def material_for(name: str) -> bpy.types.Material:
-    return shading.game_material(name, kind_of(name), texture_image(name))
+    return shading.game_material(name, kind_of(name), texture_image(name), glows(name))
+
+
+def glows(name: str) -> bool:
+    catalog = game.catalog()
+    info = catalog.get(name) if catalog else None
+
+    return info is not None and info.glow
 
 
 def kind_of(name: str) -> str:

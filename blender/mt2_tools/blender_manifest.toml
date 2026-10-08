@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "mt2_tools"
-version = "0.5.7"
+version = "0.5.9"
 name = "MT2 Tools"
 tagline = "Import, edit and export MMORPG Tycoon 2 models"
 maintainer = "Yamikhal"
@@ -14,3 +14,4 @@ license = ["SPDX:GPL-3.0-or-later"]
 
 [permissions]
 files = "Read game models, write mod files and saved color swatches"
+network = "Check GitHub for new MT2 Tools releases"
