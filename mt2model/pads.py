@@ -4,6 +4,10 @@ from . import records
 
 Vector = tuple[float, float, float]
 
+# Most game files say mmoPad; a few vehicles and buildings say mmoBuildingPad, and the game reads both.
+PAD_LABELS = ("mmoPad", "mmoBuildingPad")
+ENTRANCE_LABELS = ("mmoPadEntrance", "mmoBuildingEntrance")
+
 
 @dataclass
 class Entrance:
@@ -23,7 +27,7 @@ def read_pads(owner: records.Record) -> list[Pad]:
     if container is None:
         return []
 
-    return [_read_pad(r) for r in container.children_named("mmoPad")]
+    return [_read_pad(r) for r in container.children if r.label in PAD_LABELS]
 
 
 def _read_pad(record: records.Record) -> Pad:
@@ -32,7 +36,7 @@ def _read_pad(record: records.Record) -> Pad:
     vertex = cs.child("vertex") if cs else None
     pad.corners = [c.vector() for c in vertex.children] if vertex else []
     entrances = record.child("entrance")
-    for entrance in entrances.children_named("mmoPadEntrance") if entrances else []:
+    for entrance in [e for e in entrances.children if e.label in ENTRANCE_LABELS] if entrances else []:
         path = entrance.child("path")
         points = [c.vector() for c in path.children] if path else []
         pad.entrances.append(Entrance(entrance.prop("name") or "", points))
@@ -70,15 +74,20 @@ def replace_pads(owner: records.Record, pads: list[Pad]):
         owner.children[index] = pads_block(pads)
 
 
-def pad_problems(pads: list[Pad]) -> list[tuple[str, str]]:
+def pad_problems(pads: list[Pad], required: bool = False) -> list[tuple[str, str]]:
+    level = "error" if required else "warning"
+    if required and not pads:
+        return [("error", "has no pad; heroes board on a pad, and the game crashes without one")]
     problems = []
     for pad in pads:
-        if len(pad.corners) != 4:
+        if len(pad.corners) < 3:
+            problems.append((level, f"pad '{pad.name}' has {len(pad.corners)} corners; pads have 4"))
+        elif len(pad.corners) != 4:
             problems.append(("warning", f"pad '{pad.name}' has {len(pad.corners)} corners; pads have 4"))
         if not pad.entrances:
-            problems.append(("warning", f"pad '{pad.name}' has no entrance, so NPCs may not reach it"))
+            problems.append((level, f"pad '{pad.name}' has no entrance, so NPCs can't reach it"))
         for entrance in pad.entrances:
             if not entrance.points:
-                problems.append(("warning", f"entrance '{entrance.name}' of pad '{pad.name}' has no points"))
+                problems.append((level, f"entrance '{entrance.name}' of pad '{pad.name}' has no points"))
 
     return problems

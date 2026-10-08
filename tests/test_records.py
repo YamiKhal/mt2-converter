@@ -4,6 +4,7 @@ from mt2model import records
 from mt2model.costume_files import read_defaults
 from mt2model.i18n import set_strings
 from mt2model.obstruction import read_obstruction, write_obstruction
+from mt2model.pads import Entrance, Pad, pad_problems, read_pads
 from mt2model.variants import derive_variant
 
 VARIANT = """mmoBuildingVariant
@@ -70,6 +71,27 @@ class RecordTests(unittest.TestCase):
         self.assertEqual(
             [(r.label, r.first()) for r in parsed], [("a_displayname", "New"), ("b_displayname", 'Say "hi"')]
         )
+
+
+class PadTests(unittest.TestCase):
+    def test_building_pad_label_is_read(self):
+        text = (
+            'mmoVehicleDefinition {\n pad {\n  mmoBuildingPad {\n   name "deck";\n'
+            '   entrance {\n    mmoBuildingEntrance {\n     name "port"\n     path {\n      1 0 0;\n'
+            "     }\n    }\n   }\n  }\n }\n}\n"
+        )
+        pads = read_pads(records.parse(text)[0])
+
+        self.assertEqual([(p.name, [e.name for e in p.entrances]) for p in pads], [("deck", ["port"])])
+
+    def test_vehicle_needs_a_pad_with_an_entrance(self):
+        corners = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 0.0, 1.0), (0.0, 0.0, 1.0)]
+        boardable = Pad("deck", corners, [Entrance("port", [(2.0, 0.0, 0.0)])])
+
+        self.assertEqual(pad_problems([], required=True)[0][0], "error")
+        self.assertEqual(pad_problems([Pad("deck", corners)], required=True)[0][0], "error")
+        self.assertEqual(pad_problems([boardable], required=True), [])
+        self.assertEqual(pad_problems([Pad("deck", corners)])[0][0], "warning")
 
 
 if __name__ == "__main__":

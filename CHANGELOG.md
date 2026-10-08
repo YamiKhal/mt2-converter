@@ -2,6 +2,11 @@
 
 Each `## MT2 Tools Patch - <version>` section becomes that version's GitHub release notes (`python scripts/release.py`), and MT2 Tools shows them when it offers the update.
 
+## MT2 Tools Patch - 0.6.1
+### Fixed
+- Fixed an issue where a vehicle with no pads could be exported and crash the game when placed. Export now stops and tells you to add a pad with an entrance.
+- Fixed the makeshift airship, the wizard airship and the turtle coming in without their deck pad when imported.
+
 ## MT2 Tools Patch - 0.6.0
 ### New
 - **Updates from GitHub**: MT2 Tools now checks for a new release when Blender starts. If there is one, an **Update to …** button shows at the top of the MT2 tab: one click downloads and installs it, and hovering over it shows what's new. You can turn the check off, or run it by hand, in the add-on preferences. Needs Blender's *Allow Online Access* (Preferences ▸ System ▸ Network).

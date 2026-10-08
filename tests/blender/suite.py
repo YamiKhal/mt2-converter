@@ -754,6 +754,23 @@ class NewModels(unittest.TestCase):
         )
         self.assertEqual(offered_vehicles(plan.texts["CursorBehaviours.txt"]), ["test_models_red_balloon"])
 
+    def test_vehicle_pads_with_other_label_import(self):
+        makeshift = import_game("vehicles/air/makeshift.vmb")
+        self.assertEqual(len([c for c in makeshift.children if c.mt2.role == "PAD"]), 1)
+        makeshift.mt2.name = "raft"
+        self.assertTrue(pipeline.plan(makeshift).ok)
+
+    def test_vehicle_without_pads_is_an_error(self):
+        balloon = import_game("vehicles/air/balloon.vmb")
+        balloon.mt2.name = "padless"
+        for pad in [c for c in balloon.children if c.mt2.role == "PAD"]:
+            for entrance in list(pad.children):
+                bpy.data.objects.remove(entrance)
+            bpy.data.objects.remove(pad)
+        plan = pipeline.plan(balloon)
+        self.assertFalse(plan.ok)
+        self.assertTrue(any("has no pad" in f.message for f in plan.findings))
+
     def test_gizmo_animation_round_trip(self):
         chest = import_game("gizmo/container/chest.vmb")
         self.assertEqual((chest.mt2.asset, chest.mt2.gizmo_dir), ("gizmo", "gizmo/container"))

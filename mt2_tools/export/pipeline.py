@@ -16,7 +16,7 @@ from ..mt2model.footprint import is_convex
 from ..mt2model.i18n import set_strings, strings_path
 from ..mt2model.naming import ExportTarget, model_path, prefixed, target_problems
 from ..mt2model.obstruction import obs_file_name, write_obstruction
-from ..mt2model.pads import pad_problems
+from ..mt2model.pads import pad_problems, read_pads
 from ..mt2model.validate import Finding, has_errors, validate
 from ..mt2model.variants import building_kinds, derive_variant, display_name_key, variant_files
 from ..mt2model.vehicle_tool import TOOL_FILE, vehicle_tool_file
@@ -259,11 +259,10 @@ def _plan_vehicle(result: Plan, target: ExportTarget):
         return
     stem = prefixed(target.mod_id, target.name)
     pads = collect_pads(result.root_obj) if has_own_pads(result.root_obj) else None
-    result.texts[f"{folder}{stem}.def"] = derive_variant(
-        data.read(template), stem, result.rel, pads, label="mmoVehicleDefinition"
-    )
-    if pads is not None:
-        result.findings += [Finding(level, message) for level, message in pad_problems(pads)]
+    definition = derive_variant(data.read(template), stem, result.rel, pads, label="mmoVehicleDefinition")
+    written_pads = read_pads(records.parse(definition)[0])
+    result.findings += [Finding(level, message) for level, message in pad_problems(written_pads, required=True)]
+    result.texts[f"{folder}{stem}.def"] = definition
     game_tool = data.sources[-1].read(TOOL_FILE).decode("latin-1")
     result.texts[TOOL_FILE] = vehicle_tool_file(
         game_tool, _read_project_text(TOOL_FILE), stem, result.root_obj.mt2.standalone
