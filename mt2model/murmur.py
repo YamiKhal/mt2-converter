@@ -13,11 +13,11 @@ def murmur3_32(data: bytes, seed: int = SEED) -> int:
     h = seed & _MASK
     blocks = len(data) // 4
     for i in range(blocks):
-        k = int.from_bytes(data[4 * i:4 * i + 4], "little")
+        k = int.from_bytes(data[4 * i : 4 * i + 4], "little")
         k = _rotl((k * _C1) & _MASK, 15)
         h ^= (k * _C2) & _MASK
         h = (_rotl(h, 13) * 5 + 0xE6546B64) & _MASK
-    tail = data[4 * blocks:]
+    tail = data[4 * blocks :]
     k = 0
     if len(tail) >= 3:
         k ^= tail[2] << 16

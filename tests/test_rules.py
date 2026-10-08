@@ -1,6 +1,7 @@
 import unittest
 
 from helpers import cube, fake_game
+
 from mt2model.assets import asset_type, guess_from_path
 from mt2model.glow import glow_material, glow_shader
 from mt2model.materials import MaterialCatalog, classify
@@ -18,16 +19,27 @@ class NamingTests(unittest.TestCase):
             return model_path(ExportTarget(mod_id="mymod", name="Big Rock", **kw))
 
         self.assertEqual(path(asset="scenery", scenery_type="stone"), "scenery/stone/mymod_big_rock.vmb")
-        self.assertEqual(path(asset="weapon", weapon_category="swords", item_level=45),
-                         "weapons/swords/045_mymod_big_rock.vmb")
-        self.assertEqual(path(asset="tagged", tag_place="wall", tag_kind="light", tag_small=True, tag_extra=["cave"]),
-                         "scenery/tagged/w_light_small_cave_mymod_big_rock.vmb")
-        self.assertEqual(path(asset="costume_part", costume_set="mymod_knight", bone="hat"), "costumes/mymod_knight/hat.vmb")
-        self.assertEqual(path(asset="modular", theme="castle2", slot="tops_end"),
-                         "building_themes/castle2/tops_end/mymod_big_rock.vmb")
-        self.assertEqual(path(asset="modular", theme="mymod_town", slot="tops_end"),
-                         "building_themes/mymod_town/tops_end/big_rock.vmb")
-        self.assertEqual(path(asset="wall", theme="mymod_town", wall_piece="turret"), "wall_themes/mymod_town/turret_mymod_town.vmb")
+        self.assertEqual(
+            path(asset="weapon", weapon_category="swords", item_level=45), "weapons/swords/045_mymod_big_rock.vmb"
+        )
+        self.assertEqual(
+            path(asset="tagged", tag_place="wall", tag_kind="light", tag_small=True, tag_extra=["cave"]),
+            "scenery/tagged/w_light_small_cave_mymod_big_rock.vmb",
+        )
+        self.assertEqual(
+            path(asset="costume_part", costume_set="mymod_knight", bone="hat"), "costumes/mymod_knight/hat.vmb"
+        )
+        self.assertEqual(
+            path(asset="modular", theme="castle2", slot="tops_end"),
+            "building_themes/castle2/tops_end/mymod_big_rock.vmb",
+        )
+        self.assertEqual(
+            path(asset="modular", theme="mymod_town", slot="tops_end"),
+            "building_themes/mymod_town/tops_end/big_rock.vmb",
+        )
+        self.assertEqual(
+            path(asset="wall", theme="mymod_town", wall_piece="turret"), "wall_themes/mymod_town/turret_mymod_town.vmb"
+        )
         self.assertEqual(path(asset="building", building_dir="buildings/inn"), "buildings/inn/mymod_big_rock.vmb")
 
     def test_prefix_is_added_once(self):
@@ -80,9 +92,11 @@ class ValidateTests(unittest.TestCase):
         self.assertEqual(glow_material(text, "test_costume_glow_f.glsl"), text)
 
     def test_glow_shader_ignores_the_light(self):
-        shader = ("\tcolor.rgb = mix( color.rgb, frontColor.rgb, frontColor.a );\r\n"
-                  "\tcolor.rgb = shade(color.rgb);\r\n"
-                  "\tif ( distanceCull )\r\n")
+        shader = (
+            "\tcolor.rgb = mix( color.rgb, frontColor.rgb, frontColor.a );\r\n"
+            "\tcolor.rgb = shade(color.rgb);\r\n"
+            "\tif ( distanceCull )\r\n"
+        )
         glowing = glow_shader(shader)
         self.assertLess(glowing.index("vec3 glowColor = color.rgb;"), glowing.index("shade("))
         self.assertLess(glowing.index("shade("), glowing.index("max( color.rgb, mix( glowColor"))

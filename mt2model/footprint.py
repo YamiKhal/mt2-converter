@@ -18,9 +18,7 @@ def _rotate(q, v):
     ty = 2 * (z * v[0] - x * v[2])
     tz = 2 * (x * v[1] - y * v[0])
 
-    return (v[0] + w * tx + y * tz - z * ty,
-            v[1] + w * ty + z * tx - x * tz,
-            v[2] + w * tz + x * ty - y * tx)
+    return (v[0] + w * tx + y * tz - z * ty, v[1] + w * ty + z * tx - x * tz, v[2] + w * tz + x * ty - y * tx)
 
 
 def _transform(node: Node, p):

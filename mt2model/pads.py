@@ -30,20 +30,14 @@ def _read_pad(record: records.Record) -> Pad:
     pad = Pad(record.prop("name") or "")
     cs = record.child("cs")
     vertex = cs.child("vertex") if cs else None
-    pad.corners = [_vector(c) for c in vertex.children] if vertex else []
+    pad.corners = [c.vector() for c in vertex.children] if vertex else []
     entrances = record.child("entrance")
     for entrance in entrances.children_named("mmoPadEntrance") if entrances else []:
         path = entrance.child("path")
-        points = [_vector(c) for c in path.children] if path else []
+        points = [c.vector() for c in path.children] if path else []
         pad.entrances.append(Entrance(entrance.prop("name") or "", points))
 
     return pad
-
-
-def _vector(record: records.Record) -> Vector:
-    values = record.floats()
-
-    return (values[0], values[1], values[2])
 
 
 def pads_block(pads: list[Pad]) -> records.Record:
@@ -52,9 +46,11 @@ def pads_block(pads: list[Pad]) -> records.Record:
 
 def _pad_record(pad: Pad) -> records.Record:
     entrances = [
-        records.block("mmoPadEntrance",
-                      records.leaf("name", e.name, semicolon=False),
-                      records.block("path", *[records.vector_line(p) for p in e.points]))
+        records.block(
+            "mmoPadEntrance",
+            records.leaf("name", e.name, semicolon=False),
+            records.block("path", *[records.vector_line(p) for p in e.points]),
+        )
         for e in pad.entrances
     ]
 

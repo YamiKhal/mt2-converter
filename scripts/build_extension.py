@@ -5,7 +5,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SOURCE = ROOT / "blender" / "mt2_tools"
+SOURCE = ROOT / "mt2_tools"
 LIBRARY = ROOT / "mt2model"
 BUILD = ROOT / "build" / "mt2_tools"
 DIST = ROOT / "dist"
@@ -25,9 +25,13 @@ def assemble() -> Path:
 
 
 def version() -> str:
-    text = (SOURCE / "blender_manifest.toml").read_text(encoding="utf-8")
+    manifest = (SOURCE / "blender_manifest.toml").read_text(encoding="utf-8")
+    library = (LIBRARY / "__init__.py").read_text(encoding="utf-8")
+    found = re.search(r'^version\s*=\s*"([^"]+)"', manifest, re.M).group(1)
+    if f'__version__ = "{found}"' not in library:
+        sys.exit(f"mt2model/__init__.py doesn't say {found}; set both with scripts/bump_version.py")
 
-    return re.search(r'^version\s*=\s*"([^"]+)"', text, re.M).group(1)
+    return found
 
 
 def package(folder: Path) -> Path:

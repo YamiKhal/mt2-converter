@@ -17,11 +17,14 @@ def _steam_roots() -> list[Path]:
                 roots.append(Path(winreg.QueryValueEx(key, "SteamPath")[0]))
         except OSError:
             pass
-        roots.append(Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Steam")
+        roots.append(Path(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")) / "Steam")
     else:
         home = Path.home()
-        roots += [home / ".steam" / "steam", home / ".local" / "share" / "Steam",
-                  home / "Library" / "Application Support" / "Steam"]
+        roots += [
+            home / ".steam" / "steam",
+            home / ".local" / "share" / "Steam",
+            home / "Library" / "Application Support" / "Steam",
+        ]
 
     return [r for r in roots if r.is_dir()]
 

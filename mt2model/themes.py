@@ -30,17 +30,19 @@ FAMILIES = {
 
 def theme_names(data: GameData, family: str) -> list[str]:
     folder = FAMILIES[family].folder + "/"
-    names = {rel[len(folder):].split("/", 1)[0] for rel in data.files(folder) if rel.count("/") > folder.count("/")}
+    names = {rel[len(folder) :].split("/", 1)[0] for rel in data.files(folder) if rel.count("/") > folder.count("/")}
 
     return sorted(n for n in names if data.files(f"{folder}{n}/"))
 
 
-def copy_theme(data: GameData, family: str, source: str, name: str, colors: list[Color] | None = None) -> dict[str, bytes]:
+def copy_theme(
+    data: GameData, family: str, source: str, name: str, colors: list[Color] | None = None
+) -> dict[str, bytes]:
     theme = FAMILIES[family]
     prefix = f"{theme.folder}/{source}/"
     files = {}
     for rel in data.files(prefix):
-        tail = _rename(rel[len(prefix):], source, name)
+        tail = _rename(rel[len(prefix) :], source, name)
         content = data.read(rel)
         if theme.conf and tail == theme.conf:
             content = _theme_conf(content, name, colors).encode("latin-1")
@@ -64,7 +66,7 @@ def copy_theme(data: GameData, family: str, source: str, name: str, colors: list
 def theme_props(data: GameData, source: str, name: str) -> dict[str, bytes]:
     props = {}
     for rel in data.files(PROP_FOLDER, ".vmb"):
-        tags = rel[len(PROP_FOLDER):-len(".vmb")].split("_")
+        tags = rel[len(PROP_FOLDER) : -len(".vmb")].split("_")
         if source in tags:
             renamed = "_".join(name if tag == source else tag for tag in tags)
             props[f"{PROP_FOLDER}{renamed}.vmb"] = data.read(rel)
@@ -82,8 +84,10 @@ def _theme_conf(template: bytes, name: str, colors: list[Color] | None) -> str:
     theme.set_prop("directory", name)
     theme.set_prop("displayName", name)
     if colors:
-        lines = [records.Record(None, [records.Token("text", ",".join(f"{c:.6f}" for c in color))], line_open=False)
-                 for color in colors[:4]]
+        lines = [
+            records.Record(None, [records.Token("text", ",".join(f"{c:.6f}" for c in color))], line_open=False)
+            for color in colors[:4]
+        ]
         index = next((i for i, c in enumerate(theme.children) if c.label == "colors"), None)
         if index is not None:
             theme.children[index] = records.block("colors", *lines)

@@ -1,17 +1,24 @@
 import unittest
 
 from helpers import cube, fake_game
+
 from mt2model import model, records
 from mt2model.animations import Animation, Timeline, chain, door_order, pose_jumps
-from mt2model.bridges import read_bridge, set_obstruction, set_ramp_path
 from mt2model.artpacks import art_pack, pack_content, weapon_pack
+from mt2model.bridges import read_bridge, set_obstruction, set_ramp_path
 from mt2model.costume_files import PartPlacement, read_costume, rename_bones, write_costume
 from mt2model.formats import layout
 from mt2model.gamedata import GameData
 from mt2model.naming import dungeon_theme_name
 from mt2model.recolor import remap_colors
-from mt2model.rigs import (CHARACTER_ANIMATIONS, creature_costume, creature_type, merge_animations, mod_animations,
-                            rename_nodes)
+from mt2model.rigs import (
+    CHARACTER_ANIMATIONS,
+    creature_costume,
+    creature_type,
+    merge_animations,
+    mod_animations,
+    rename_nodes,
+)
 from mt2model.themes import theme_props
 from mt2model.variants import Creature, read_creature, set_creature
 from mt2model.vehicle_tool import offer_vehicle, offered_vehicles, vehicle_tool_file
@@ -19,17 +26,26 @@ from mt2model.vehicle_tool import offer_vehicle, offered_vehicles, vehicle_tool_
 
 class ArtPackTests(unittest.TestCase):
     def test_content_by_section(self):
-        content = pack_content([
-            "scenery/stone/m_rock.vmb", "scenery/tagged/f_prop_m_pot.vmb", "bridge_themes/m_moat/bridge_m_moat.vmb",
-            "wall_themes/castle/wall_castle.vmb", "weapons/m_blades/015_m_sword.vmb", "weapons/swords/015_m_sword.vmb",
-        ], lambda prefix: prefix in ("wall_themes/castle/", "weapons/swords/"))
+        content = pack_content(
+            [
+                "scenery/stone/m_rock.vmb",
+                "scenery/tagged/f_prop_m_pot.vmb",
+                "bridge_themes/m_moat/bridge_m_moat.vmb",
+                "wall_themes/castle/wall_castle.vmb",
+                "weapons/m_blades/015_m_sword.vmb",
+                "weapons/swords/015_m_sword.vmb",
+            ],
+            lambda prefix: prefix in ("wall_themes/castle/", "weapons/swords/"),
+        )
         self.assertEqual(content["scenery"], ["stone/m_rock.vmb"])
         self.assertEqual(content["bridges"], ["m_moat"])
         self.assertEqual(content["walls"], [])
         self.assertEqual(content["weaponCategories"], ["m_blades"])
 
     def test_weapon_categories_get_their_own_pack(self):
-        art = records.parse(art_pack("m", 2000, False, {"scenery": ["stone/m_rock.vmb"], "weaponCategories": ["m_blades"]}))
+        art = records.parse(
+            art_pack("m", 2000, False, {"scenery": ["stone/m_rock.vmb"], "weaponCategories": ["m_blades"]})
+        )
         self.assertIsNone(art[0].child("content").child("weaponCategories"))
         weapons = records.parse(weapon_pack("m_blades", 2000))[0]
         self.assertEqual(weapons.prop("type"), "weapons")
@@ -48,7 +64,9 @@ class VehicleToolTests(unittest.TestCase):
         text = vehicle_tool_file(game, own, "m_blimp", standalone=True)
         self.assertIn("@Build", text)
         self.assertEqual(offered_vehicles(text), ["ship", "m_raft", "m_blimp"])
-        self.assertEqual(offered_vehicles(vehicle_tool_file(game, own, "m_blimp", standalone=False)), ["m_raft", "m_blimp"])
+        self.assertEqual(
+            offered_vehicles(vehicle_tool_file(game, own, "m_blimp", standalone=False)), ["m_raft", "m_blimp"]
+        )
 
 
 class DungeonThemeTests(unittest.TestCase):
@@ -68,14 +86,14 @@ class DungeonThemeTests(unittest.TestCase):
         node = cube(fmt="PCN")
         remap_colors(node, [(0.5, 0.5, 0.5, 1.0)], [(0.2, 0.4, 0.8, 1.0)])
         at = layout("PCN").color
-        self.assertEqual(tuple(round(c, 3) for c in node.fragments[0].vertices[0][at:at + 3]), (0.2, 0.4, 0.8))
+        self.assertEqual(tuple(round(c, 3) for c in node.fragments[0].vertices[0][at : at + 3]), (0.2, 0.4, 0.8))
         model.read_model(model.write_model(node))
 
 
 class RigTests(unittest.TestCase):
     def test_character_animation_names(self):
         self.assertEqual(len(CHARACTER_ANIMATIONS), 49)
-        self.assertEqual(CHARACTER_ANIMATIONS.index("death"), 0x2e)
+        self.assertEqual(CHARACTER_ANIMATIONS.index("death"), 0x2E)
 
     def test_changed_animations_replace_by_name(self):
         base = [Animation("idle"), Animation("run")]
@@ -86,38 +104,49 @@ class RigTests(unittest.TestCase):
         game = [Animation("idle"), Animation("run")]
         own = [Animation("idle"), Animation("run", "Loop")]
         changed = [Animation("death")]
-        self.assertEqual([(a.name, a.playback) for a in mod_animations(game, own, changed, standalone=True)],
-                         [("idle", "Once"), ("run", "Loop"), ("death", "Once")])
-        self.assertEqual([(a.name, a.playback) for a in mod_animations(game, own, changed, standalone=False)],
-                         [("run", "Loop"), ("death", "Once")])
+        self.assertEqual(
+            [(a.name, a.playback) for a in mod_animations(game, own, changed, standalone=True)],
+            [("idle", "Once"), ("run", "Loop"), ("death", "Once")],
+        )
+        self.assertEqual(
+            [(a.name, a.playback) for a in mod_animations(game, own, changed, standalone=False)],
+            [("run", "Loop"), ("death", "Once")],
+        )
 
     def test_costume_gets_its_rig(self):
         template = 'mmoCostume {\n\tname "bear";\n\tactorName "quadruped";\n\tcostumePart {\n\t}\n}\n'
-        written = read_costume(write_costume(template, "m_griffin", [PartPlacement("wingleft", "costumes/m/wingleft.vmb")],
-                                             actor="m_griffin"))
+        written = read_costume(
+            write_costume(
+                template, "m_griffin", [PartPlacement("wingleft", "costumes/m/wingleft.vmb")], actor="m_griffin"
+            )
+        )
         self.assertEqual((written.name, written.actor), ("m_griffin", "m_griffin"))
         self.assertEqual([p.bone for p in written.parts], ["wingleft"])
 
     def test_renamed_bones_keep_their_entries(self):
-        template = "\n".join([
-            "mmoCostume {",
-            '\tname "k";',
-            '\tactorName "m_biped";',
-            "\tcostumePart {",
-            "\t\tmmoCostumePartDescriptor {",
-            '\t\t\tboneName "armright"',
-            "\t\t\tattachment {",
-            "\t\t\t}",
-            "\t\t}",
-            "\t}",
-            "}",
-            "",
-        ])
+        template = "\n".join(
+            [
+                "mmoCostume {",
+                '\tname "k";',
+                '\tactorName "m_biped";',
+                "\tcostumePart {",
+                "\t\tmmoCostumePartDescriptor {",
+                '\t\t\tboneName "armright"',
+                "\t\t\tattachment {",
+                "\t\t\t}",
+                "\t\t}",
+                "\t}",
+                "}",
+                "",
+            ]
+        )
         renamed = records.parse(rename_bones(template, {"armright": "arm_r"}))[0]
         descriptor = renamed.child("costumePart").children[0]
         self.assertEqual(descriptor.prop("boneName"), "arm_r")
         self.assertIsNotNone(descriptor.child("attachment"))
-        written = read_costume(write_costume(template, "k", [PartPlacement("arm_r", "a.vmb")], renames={"armright": "arm_r"}))
+        written = read_costume(
+            write_costume(template, "k", [PartPlacement("arm_r", "a.vmb")], renames={"armright": "arm_r"})
+        )
         self.assertEqual([p.bone for p in written.parts], ["arm_r"])
 
     def test_renamed_nodes_in_animations(self):
@@ -126,10 +155,15 @@ class RigTests(unittest.TestCase):
         self.assertEqual([t.node for t in animation.timelines], ["arm_r", "head"])
 
     def test_pose_jumps_between_animations(self):
-        unlock = Animation("unlock", timelines=[Timeline("lock", translation=[(0.0, (0, 0, 0)), (1.0, (0, 0, 1))],
-                                                         rotation=[(0.0, (0, 0, 0, 1))])])
-        opening = Animation("open", timelines=[Timeline("lock", translation=[(0.0, (0, 0, 0.5))],
-                                                          rotation=[(0.0, (0, 0, 0, -1))])])
+        unlock = Animation(
+            "unlock",
+            timelines=[
+                Timeline("lock", translation=[(0.0, (0, 0, 0)), (1.0, (0, 0, 1))], rotation=[(0.0, (0, 0, 0, 1))])
+            ],
+        )
+        opening = Animation(
+            "open", timelines=[Timeline("lock", translation=[(0.0, (0, 0, 0.5))], rotation=[(0.0, (0, 0, 0, -1))])]
+        )
         self.assertEqual(pose_jumps(unlock, opening), {"lock": (0.5, 0.0, 0.0)})
 
     def test_creature_type_from_a_prefab(self):
@@ -140,36 +174,40 @@ class RigTests(unittest.TestCase):
         self.assertEqual((definition.prop("name"), definition.prop("speed")), ("Griffin", "4.0"))
 
     def test_flight_point_creature(self):
-        variant = 'mmoBuildingVariant\n{\n\tname "owl";\n\tmodelFile "a.vmb";\n\tactor "owl";\n\tactorOffset 0 5 0;\n}\n'
+        variant = (
+            'mmoBuildingVariant\n{\n\tname "owl";\n\tmodelFile "a.vmb";\n\tactor "owl";\n\tactorOffset 0 5 0;\n}\n'
+        )
         self.assertEqual(read_creature(variant), Creature("owl", "idle", (0.0, 5.0, 0.0), None))
         griffin = Creature("m_griffin", "idle", (1.0, 2.0, 3.0), (0.0, -1.0, 0.0, 0.0))
         self.assertEqual(read_creature(set_creature(variant, griffin)), griffin)
 
 
 class BridgeTests(unittest.TestCase):
-    VARIANT = "\n".join([
-        "mmoBridgeVariant",
-        "{",
-        'name "rope";',
-        "height 3.0",
-        "rampPath",
-        "{",
-        "mmoPadPath",
-        "{",
-        "path",
-        "{",
-        "0 0 0;",
-        "0 3 22;",
-        "}",
-        "}",
-        "}",
-        "fullyObstructed false;",
-        "obstruction",
-        "{",
-        "}",
-        "}",
-        "",
-    ])
+    VARIANT = "\n".join(
+        [
+            "mmoBridgeVariant",
+            "{",
+            'name "rope";',
+            "height 3.0",
+            "rampPath",
+            "{",
+            "mmoPadPath",
+            "{",
+            "path",
+            "{",
+            "0 0 0;",
+            "0 3 22;",
+            "}",
+            "}",
+            "}",
+            "fullyObstructed false;",
+            "obstruction",
+            "{",
+            "}",
+            "}",
+            "",
+        ]
+    )
 
     def test_ramp_path_sets_the_height(self):
         text = set_ramp_path(self.VARIANT, [(0, 0, 0), (0, 2, 10), (0, 6, 30)], replaces_game=False)

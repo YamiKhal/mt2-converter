@@ -15,10 +15,14 @@ def _glb(positions, colors) -> bytes:
         "nodes": [{"mesh": 0, "translation": [0, 5, 0]}],
         "meshes": [{"primitives": [{"attributes": {"POSITION": 0, "COLOR_0": 1}}]}],
         "buffers": [{"byteLength": len(binary)}],
-        "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": 36},
-                        {"buffer": 0, "byteOffset": 36, "byteLength": 48}],
-        "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"},
-                      {"bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC4"}],
+        "bufferViews": [
+            {"buffer": 0, "byteOffset": 0, "byteLength": 36},
+            {"buffer": 0, "byteOffset": 36, "byteLength": 48},
+        ],
+        "accessors": [
+            {"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"},
+            {"bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC4"},
+        ],
     }
     text = json.dumps(doc).encode()
     text += b" " * (-len(text) % 4)

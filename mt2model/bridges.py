@@ -29,7 +29,7 @@ def read_bridge(text: bytes | str) -> Bridge | None:
     if variant is None:
         return None
     bridge = Bridge(float(variant.prop("height") or 0.0))
-    bridge.ramp_path = [_vector(line) for line in _path_lines(variant)]
+    bridge.ramp_path = [line.vector() for line in _path_lines(variant)]
     sections = variant.child("obstruction")
     for section in sections.children_named("mmoCrossSection") if sections else []:
         vertex = section.child("vertex")
@@ -58,7 +58,9 @@ def set_obstruction(text: bytes | str, polygons: list[list[Point]], fully_obstru
     variant = _variant(parsed)
     depth = read_bridge(text).depth
     sections = [
-        records.block("mmoCrossSection", records.block("vertex", *[records.vector_line((x, depth, z)) for x, z in polygon]))
+        records.block(
+            "mmoCrossSection", records.block("vertex", *[records.vector_line((x, depth, z)) for x, z in polygon])
+        )
         for polygon in map(counter_clockwise, polygons)
     ]
     variant.set_prop("fullyObstructed", "true" if fully_obstructed else "false", quoted=False)
@@ -78,12 +80,6 @@ def _path_lines(variant: records.Record) -> list[records.Record]:
     path = pad_path.child("path") if pad_path else None
 
     return path.children if path else []
-
-
-def _vector(line: records.Record) -> Vector:
-    values = line.floats()
-
-    return (values[0], values[1], values[2])
 
 
 def _replace_child(owner: records.Record, label: str, replacement: records.Record):

@@ -29,8 +29,10 @@ def pack_content(paths: list[str], is_vanilla_folder: Callable[[str], bool]) -> 
 
 
 def art_pack(key: str, cost: int, exotic: bool, content: dict[str, list[str]]) -> str:
-    sections = [records.block(section, *[records.leaf(None, item) for item in content.get(section, [])])
-                for section in ART_SECTIONS]
+    sections = [
+        records.block(section, *[records.leaf(None, item) for item in content.get(section, [])])
+        for section in ART_SECTIONS
+    ]
 
     return _pack("art", key, cost, exotic, sections)
 

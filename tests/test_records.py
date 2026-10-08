@@ -1,7 +1,7 @@
 import unittest
 
 from mt2model import records
-from mt2model.costume import read_defaults
+from mt2model.costume_files import read_defaults
 from mt2model.i18n import set_strings
 from mt2model.obstruction import read_obstruction, write_obstruction
 from mt2model.variants import derive_variant
@@ -39,7 +39,7 @@ class RecordTests(unittest.TestCase):
         self.assertEqual(vertex.children[0].floats(), [-1.0, 0.792156, -4.408974])
 
     def test_brace_on_same_line_and_comments(self):
-        parsed = records.parse('Material {\n\tcolor 1 0 0 1 # red\n\tshininess: 0.0\n}\n')
+        parsed = records.parse("Material {\n\tcolor 1 0 0 1 # red\n\tshininess: 0.0\n}\n")
 
         self.assertEqual(parsed[0].child("color").floats(), [1.0, 0.0, 0.0, 1.0])
 
@@ -67,7 +67,9 @@ class RecordTests(unittest.TestCase):
         text = set_strings('a_displayname "Old"\n', {"a_displayname": "New", "b_displayname": 'Say "hi"'})
         parsed = records.parse(text)
 
-        self.assertEqual([(r.label, r.first()) for r in parsed], [("a_displayname", "New"), ("b_displayname", 'Say "hi"')])
+        self.assertEqual(
+            [(r.label, r.first()) for r in parsed], [("a_displayname", "New"), ("b_displayname", 'Say "hi"')]
+        )
 
 
 if __name__ == "__main__":

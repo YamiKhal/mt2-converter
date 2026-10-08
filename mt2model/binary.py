@@ -19,20 +19,20 @@ class Reader:
         return value
 
     def int32s(self, count: int) -> tuple[int, ...]:
-        values = struct.unpack_from(">%di" % count, self.data, self.pos)
+        values = struct.unpack_from(f">{count}i", self.data, self.pos)
         self.pos += 4 * count
 
         return values
 
     def floats(self, count: int) -> tuple[float, ...]:
-        values = struct.unpack_from("<%df" % count, self.data, self.pos)
+        values = struct.unpack_from(f"<{count}f", self.data, self.pos)
         self.pos += 4 * count
 
         return values
 
     def string(self) -> str:
         length = self.int16()
-        value = self.data[self.pos:self.pos + length].decode("latin-1")
+        value = self.data[self.pos : self.pos + length].decode("latin-1")
         self.pos += length
 
         return value
@@ -49,10 +49,10 @@ class Writer:
         self.parts.append(struct.pack(">i", value))
 
     def int32s(self, values: list[int]):
-        self.parts.append(struct.pack(">%di" % len(values), *values))
+        self.parts.append(struct.pack(f">{len(values)}i", *values))
 
     def floats(self, values: list[float]):
-        self.parts.append(struct.pack("<%df" % len(values), *values))
+        self.parts.append(struct.pack(f"<{len(values)}f", *values))
 
     def string(self, value: str):
         encoded = value.encode("latin-1")

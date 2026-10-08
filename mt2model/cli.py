@@ -23,19 +23,26 @@ def cmd_info(args):
     root = model.load(args.file)
     for node, depth in root.walk():
         pad = "  " * depth
-        print(f"{pad}{node.name!r} {node.version} t={_round(node.translation)} r={_round(node.rotation)} s={_round(node.scale)}")
+        transform = f"t={_round(node.translation)} r={_round(node.rotation)} s={_round(node.scale)}"
+        print(f"{pad}{node.name!r} {node.version} {transform}")
         for lod_index, lod in enumerate(node.lods):
             for fragment in lod:
-                print(f"{pad}  lod{lod_index} {fragment.material!r} {fragment.format} "
-                      f"vertices={len(fragment.vertices)} triangles={len(fragment.indices) // 3}")
+                print(
+                    f"{pad}  lod{lod_index} {fragment.material!r} {fragment.format} "
+                    f"vertices={len(fragment.vertices)} triangles={len(fragment.indices) // 3}"
+                )
     print(f"variant id: {murmur.variant_id(Path(args.file).name)}")
 
 
 def cmd_check(args):
     data = _game(args)
     rel = args.rel or ""
-    findings = validate(model.load(args.file), asset_type(args.asset), MaterialCatalog(data),
-                        replaces_vanilla=bool(rel) and data.is_vanilla(rel))
+    findings = validate(
+        model.load(args.file),
+        asset_type(args.asset),
+        MaterialCatalog(data),
+        replaces_vanilla=bool(rel) and data.is_vanilla(rel),
+    )
     for f in findings:
         where = f" [{f.node}/{f.material}]" if f.material else ""
         print(f"{f.level:7} {f.message}{where}")

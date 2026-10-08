@@ -1,9 +1,10 @@
 import unittest
 
 from helpers import cube
+
 from mt2model.axes import swap_position, swap_rotation, swap_scale
 from mt2model.colors import linear_to_srgb, srgb_to_linear
-from mt2model.costume import extent, normalise, slot_of, slot_u
+from mt2model.costume_parts import extent, normalise, slot_of, slot_u
 from mt2model.footprint import area, building_footprint, convex_hull, expand, is_convex, scenery_footprint, simplify
 from mt2model.murmur import murmur3_32
 

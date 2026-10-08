@@ -23,7 +23,6 @@ def glow_shader(costume_shader: str) -> str:
     if _PALETTE_DONE not in text or _SHADING_DONE not in text:
         raise ValueError("The game's costume shader changed, so the glow shader can't be made from it")
     text = text.replace(_PALETTE_DONE, _PALETTE_DONE + "\tvec3 glowColor = color.rgb;\n", 1)
-    unlit = ("\tcolor.rgb = max( color.rgb, mix( glowColor, finalFogColor, finalFogFactor ) );\n"
-             "\tnowGlow = 1.0;\n\n")
+    unlit = "\tcolor.rgb = max( color.rgb, mix( glowColor, finalFogColor, finalFogFactor ) );\n\tnowGlow = 1.0;\n\n"
 
     return text.replace(_SHADING_DONE, unlit + _SHADING_DONE, 1)

@@ -1,15 +1,38 @@
 from . import records
 from .animations import Animation, write_animations
 
-SEQUENCES = ("attack", "attack_double", "attack_heavy", "attack_spin", "attack_headbutt", "attack_shot", "attack_bow",
-             "cast", "cast_force", "cast_charge", "cast_swish")
+SEQUENCES = (
+    "attack",
+    "attack_double",
+    "attack_heavy",
+    "attack_spin",
+    "attack_headbutt",
+    "attack_shot",
+    "attack_bow",
+    "cast",
+    "cast_force",
+    "cast_charge",
+    "cast_swish",
+)
 
 CHARACTER_ANIMATIONS = (
-    "idle", "idle_combat", "run", "jump",
+    "idle",
+    "idle_combat",
+    "run",
+    "jump",
     *(f"{sequence}_{step}" for sequence in SEQUENCES for step in ("start", "loop", "end")),
-    "socialise", "levelup", "ride",
-    "sit_start", "sit_loop", "sit_end", "stun_start", "stun_loop", "stun_end",
-    "death", "ghost", "roar",
+    "socialise",
+    "levelup",
+    "ride",
+    "sit_start",
+    "sit_loop",
+    "sit_end",
+    "stun_start",
+    "stun_loop",
+    "stun_end",
+    "death",
+    "ghost",
+    "roar",
 )
 
 STANDARD_BONES = ("head", "hat", "torso", "tail", "armleft", "armright", "legleft", "legright")
@@ -31,8 +54,9 @@ def merge_animations(base: list[Animation], changed: list[Animation]) -> list[An
     return merged + list(by_name.values())
 
 
-def mod_animations(game: list[Animation], own: list[Animation], changed: list[Animation],
-                   standalone: bool) -> list[Animation]:
+def mod_animations(
+    game: list[Animation], own: list[Animation], changed: list[Animation], standalone: bool
+) -> list[Animation]:
     game_text = {a.name: write_animations([a]) for a in game}
     kept = [a for a in own if game_text.get(a.name) != write_animations([a])]
     mod = merge_animations(kept, changed)

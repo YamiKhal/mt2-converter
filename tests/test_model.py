@@ -1,6 +1,7 @@
 import unittest
 
 from helpers import cube, real_game
+
 from mt2model import model
 from mt2model.formats import layout, make_format
 from mt2model.model import Node
@@ -18,8 +19,9 @@ class ModelTests(unittest.TestCase):
 
     def test_layout_offsets(self):
         self.assertEqual(layout("PCNT"), layout("PCNT"))
-        self.assertEqual((layout("PCNT").color, layout("PCNT").normal, layout("PCNT").texel, layout("PCNT").size),
-                         (3, 7, 10, 12))
+        self.assertEqual(
+            (layout("PCNT").color, layout("PCNT").normal, layout("PCNT").texel, layout("PCNT").size), (3, 7, 10, 12)
+        )
         self.assertEqual((layout("PNT").normal, layout("PNT").texel), (3, 6))
         self.assertEqual(make_format(True, True, False), "PCN")
 

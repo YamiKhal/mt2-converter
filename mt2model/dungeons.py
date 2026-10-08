@@ -4,8 +4,23 @@ from . import records
 
 THEMES_FOLDER = "dungeon/themes"
 TILE_KINDS = {"walls": "d", "ceilings": "c"}
-SHAPES = ("N", "NW", "NW_E", "NW_E_S", "NW_NE", "NW_NE_S", "NW_NE_SE", "NW_NE_SE_SW", "NW_S", "NW_SE",
-          "N_E", "N_E_S", "N_E_S_W", "N_S", "O")
+SHAPES = (
+    "N",
+    "NW",
+    "NW_E",
+    "NW_E_S",
+    "NW_NE",
+    "NW_NE_S",
+    "NW_NE_SE",
+    "NW_NE_SE_SW",
+    "NW_S",
+    "NW_SE",
+    "N_E",
+    "N_E_S",
+    "N_E_S_W",
+    "N_S",
+    "O",
+)
 
 
 @dataclass
@@ -27,11 +42,13 @@ def read_sockets(text: bytes | str) -> list[Socket]:
         tag = record.child("tag")
         position = record.child("position")
         orientation = record.child("orientation")
-        sockets.append(Socket(
-            tags=tag.texts() + [t for c in tag.children for t in c.texts()] if tag else [],
-            position=tuple(position.floats()[:3]) if position else (0.0, 0.0, 0.0),
-            orientation=tuple(orientation.floats()[:4]) if orientation else (0.0, 0.0, 0.0, 1.0),
-        ))
+        sockets.append(
+            Socket(
+                tags=tag.texts() + [t for c in tag.children for t in c.texts()] if tag else [],
+                position=tuple(position.floats()[:3]) if position else (0.0, 0.0, 0.0),
+                orientation=tuple(orientation.floats()[:4]) if orientation else (0.0, 0.0, 0.0, 1.0),
+            )
+        )
 
     return sockets
 

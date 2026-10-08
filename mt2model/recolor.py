@@ -15,8 +15,8 @@ def remap_colors(root: Node, old: list[Color], new: list[Color]):
 
 
 def _remapped(vertex: tuple[float, ...], at: int, pairs: list[tuple[Color, Color]]) -> tuple[float, ...]:
-    rgb = vertex[at:at + 3]
+    rgb = vertex[at : at + 3]
     source, target = min(pairs, key=lambda pair: sum((a - b) ** 2 for a, b in zip(rgb, pair[0][:3])))
     shaded = tuple(min(1.0, c * t / max(s, 0.02)) for c, s, t in zip(rgb, source[:3], target[:3]))
 
-    return vertex[:at] + shaded + vertex[at + 3:]
+    return vertex[:at] + shaded + vertex[at + 3 :]

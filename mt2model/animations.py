@@ -61,16 +61,28 @@ def _animation_record(animation: Animation) -> records.Record:
         for block, entry, value in CHANNELS:
             keys = getattr(timeline, value)
             if keys:
-                channels.append(records.block(block, *[
-                    records.block(entry,
-                                  records.Record("time", records.vector_line([time], semicolon=False).tokens,
-                                                 line_open=False),
-                                  records.Record(value, records.vector_line(values, semicolon=False).tokens,
-                                                 line_open=False))
-                    for time, values in keys
-                ]))
-        timelines.append(records.block("mmoAnimationNodeTimeline",
-                                       records.leaf("nodeName", timeline.node, semicolon=False), *channels))
+                channels.append(
+                    records.block(
+                        block,
+                        *[
+                            records.block(
+                                entry,
+                                records.Record(
+                                    "time", records.vector_line([time], semicolon=False).tokens, line_open=False
+                                ),
+                                records.Record(
+                                    value, records.vector_line(values, semicolon=False).tokens, line_open=False
+                                ),
+                            )
+                            for time, values in keys
+                        ],
+                    )
+                )
+        timelines.append(
+            records.block(
+                "mmoAnimationNodeTimeline", records.leaf("nodeName", timeline.node, semicolon=False), *channels
+            )
+        )
 
     return records.block(
         "mmoAnimation",
@@ -89,8 +101,10 @@ def pose_jumps(before: Animation, after: Animation) -> dict[str, tuple[float, fl
     for timeline in before.timelines:
         following = starts.get(timeline.node)
         if following is not None:
-            jumps[timeline.node] = tuple(_gap(getattr(timeline, channel), getattr(following, channel), channel)
-                                         for channel in ("translation", "rotation", "scale"))
+            jumps[timeline.node] = tuple(
+                _gap(getattr(timeline, channel), getattr(following, channel), channel)
+                for channel in ("translation", "rotation", "scale")
+            )
 
     return jumps
 
@@ -113,7 +127,9 @@ def door_order(names) -> list[str]:
 
 
 def length(animation: Animation) -> float:
-    times = [time for t in animation.timelines for channel in (t.translation, t.rotation, t.scale) for time, _ in channel]
+    times = [
+        time for t in animation.timelines for channel in (t.translation, t.rotation, t.scale) for time, _ in channel
+    ]
 
     return max(times, default=0.0)
 

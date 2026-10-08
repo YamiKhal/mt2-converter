@@ -36,8 +36,23 @@ def main():
     archive = build_extension.package(build_extension.assemble())
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as file:
         file.write(notes)
-    subprocess.run(["gh", "release", "create", f"v{version}", str(archive), "--title", f"MT2 Tools {version}",
-                    "--notes-file", file.name, "--target", git("rev-parse", "HEAD")], cwd=ROOT, check=True)
+    subprocess.run(
+        [
+            "gh",
+            "release",
+            "create",
+            f"v{version}",
+            str(archive),
+            "--title",
+            f"MT2 Tools {version}",
+            "--notes-file",
+            file.name,
+            "--target",
+            git("rev-parse", "HEAD"),
+        ],
+        cwd=ROOT,
+        check=True,
+    )
     Path(file.name).unlink()
 
 

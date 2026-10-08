@@ -37,6 +37,11 @@ class Record:
     def floats(self) -> list[float]:
         return [float(t) for t in self.texts()]
 
+    def vector(self) -> tuple[float, float, float]:
+        values = self.floats()
+
+        return (values[0], values[1], values[2])
+
     def first(self) -> str | None:
         texts = self.texts()
 
@@ -158,7 +163,7 @@ def _extract(s: str):
                 out.append(ch)
             i += 1
 
-        return Token("string", "".join(out)), s[i + 1:]
+        return Token("string", "".join(out)), s[i + 1 :]
     if c == "{":
         return _OPEN, s[1:]
     if c == "}":

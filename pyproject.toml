@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mt2model"
+description = "Read, write and check MMORPG Tycoon 2 models, costumes and mod files"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.11"
+dynamic = ["version"]
+
+[project.scripts]
+mt2model = "mt2model.cli:main"
+
+[project.urls]
+Source = "https://github.com/YamiKhal/mt2-converter"
+Changelog = "https://github.com/YamiKhal/mt2-converter/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+packages = ["mt2model"]
+
+[tool.setuptools.dynamic]
+version = { attr = "mt2model.__version__" }
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "PIE", "RET"]
+# zip() over parallel per-vertex arrays: lengths are equal by construction.
+ignore = ["B905"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["mt2model", "mt2_tools"]

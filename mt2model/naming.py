@@ -38,7 +38,10 @@ _WORD = re.compile(r"^[a-z0-9_]+$")
 
 def mod_id_problem(mod_id: str) -> str | None:
     if not _MOD_ID.match(mod_id) or mod_id.endswith("_") or "__" in mod_id:
-        return f"mod id '{mod_id}' must be 2-24 characters of a-z, 0-9 and _, start with a letter, not end with _ or contain __"
+        return (
+            f"mod id '{mod_id}' must be 2-24 characters of a-z, 0-9 and _, "
+            "start with a letter, not end with _ or contain __"
+        )
 
     return None
 

@@ -4,6 +4,9 @@ from pathlib import Path
 from .binary import Reader, Writer
 from .formats import layout
 
+# Indices are stored as int32 but the game loads them as uint16.
+MAX_VERTICES = 65535
+
 
 @dataclass
 class Fragment:
@@ -11,6 +14,22 @@ class Fragment:
     format: str
     vertices: list[tuple[float, ...]] = field(default_factory=list)
     indices: list[int] = field(default_factory=list)
+
+
+def pack_triangles(material: str, fmt: str, triangles) -> list[Fragment]:
+    fragments, fragment, index_of = [], Fragment(material, fmt), {}
+    for triangle in triangles:
+        if len(fragment.vertices) + sum(v not in index_of for v in triangle) > MAX_VERTICES:
+            fragments.append(fragment)
+            fragment, index_of = Fragment(material, fmt), {}
+        for vertex in triangle:
+            if vertex not in index_of:
+                index_of[vertex] = len(fragment.vertices)
+                fragment.vertices.append(vertex)
+            fragment.indices.append(index_of[vertex])
+    fragments.append(fragment)
+
+    return fragments
 
 
 @dataclass
@@ -45,7 +64,7 @@ def _read_fragment(r: Reader) -> Fragment:
     size = layout(fmt).size
     count = r.int32()
     flat = r.floats(count * size)
-    vertices = [flat[i:i + size] for i in range(0, len(flat), size)]
+    vertices = [flat[i : i + size] for i in range(0, len(flat), size)]
     tag = r.string()
     if tag != "IndexBuffer":
         raise ValueError(f"expected 'IndexBuffer', found {tag!r}")

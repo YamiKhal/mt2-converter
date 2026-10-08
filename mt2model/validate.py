@@ -5,7 +5,7 @@ from .assets import SPECIAL_MATERIALS, AssetType
 from .footprint import building_footprint, model_points, scenery_footprint
 from .formats import FORMATS, layout
 from .materials import PALETTE_SLOTS, MaterialCatalog
-from .model import Fragment, Node
+from .model import MAX_VERTICES, Fragment, Node
 
 
 @dataclass
@@ -16,9 +16,6 @@ class Finding:
     material: str = ""
 
 
-MAX_VERTICES = 65535
-
-
 def validate(root: Node, asset: AssetType, catalog: MaterialCatalog, replaces_vanilla: bool = False) -> list[Finding]:
     findings: list[Finding] = []
     total = 0
@@ -27,14 +24,20 @@ def validate(root: Node, asset: AssetType, catalog: MaterialCatalog, replaces_va
             total += len(fragment.vertices)
             findings += _check_fragment(node.name, fragment, asset, catalog)
     if total > asset.budget:
-        findings.append(Finding("warning", f"{total} vertices; vanilla {asset.label.lower()} models stay under {asset.budget}"))
+        findings.append(
+            Finding("warning", f"{total} vertices; vanilla {asset.label.lower()} models stay under {asset.budget}")
+        )
     if total:
         findings += _check_shape(root, asset)
     else:
         findings.append(Finding("error", "the model has no geometry"))
     if replaces_vanilla:
-        findings.append(Finding("warning", "this path replaces a vanilla model for every player of the mod; "
-                                           "a new name adds a variant instead"))
+        findings.append(
+            Finding(
+                "warning",
+                "this path replaces a vanilla model for every player of the mod; a new name adds a variant instead",
+            )
+        )
 
     return findings
 
@@ -51,17 +54,26 @@ def _check_fragment(node: str, fragment: Fragment, asset: AssetType, catalog: Ma
         out.append(found("error", "a fragment has no material name"))
     elif name in SPECIAL_MATERIALS:
         if name not in asset.special:
-            out.append(found("error", f"'{name}' fragments only work in "
-                                      f"{'dungeon tiles' if name in ('collision', 'navmesh') else 'scenery'}; "
-                                      f"here the game would draw them"))
+            out.append(
+                found(
+                    "error",
+                    f"'{name}' fragments only work in "
+                    f"{'dungeon tiles' if name in ('collision', 'navmesh') else 'scenery'}; "
+                    f"here the game would draw them",
+                )
+            )
     elif catalog.get(name) is None:
-        out.append(found("error", f"material '{name}' has no materials/{name}.mat; the game closes when it loads this model"))
+        out.append(
+            found("error", f"material '{name}' has no materials/{name}.mat; the game closes when it loads this model")
+        )
     if not fragment.vertices or not fragment.indices:
         out.append(found("error", "empty fragment"))
 
         return out
     if len(fragment.vertices) > MAX_VERTICES:
-        out.append(found("error", f"{len(fragment.vertices)} vertices in one fragment; the game reads at most {MAX_VERTICES}"))
+        out.append(
+            found("error", f"{len(fragment.vertices)} vertices in one fragment; the game reads at most {MAX_VERTICES}")
+        )
     if len(fragment.indices) % 3:
         out.append(found("error", "the index count is not a multiple of 3"))
     if min(fragment.indices) < 0 or max(fragment.indices) >= len(fragment.vertices):
@@ -70,10 +82,17 @@ def _check_fragment(node: str, fragment: Fragment, asset: AssetType, catalog: Ma
         out.append(found("error", "some vertex values are NaN or infinite"))
     info = catalog.get(name) if name not in SPECIAL_MATERIALS else None
     if info is not None and info.texture and not catalog.file_exists(info.texture):
-        out.append(found("error", f"material '{name}' uses the texture '{info.texture}', which isn't in the game or "
-                                  f"the mod; the game most likely closes (it asserts when a file can't be opened)"))
+        out.append(
+            found(
+                "error",
+                f"material '{name}' uses the texture '{info.texture}', which isn't in the game or "
+                f"the mod; the game most likely closes (it asserts when a file can't be opened)",
+            )
+        )
     if info is not None:
-        out += [found(level, message) for level, message in _check_material_use(fragment, info.kind, info.textured, asset)]
+        out += [
+            found(level, message) for level, message in _check_material_use(fragment, info.kind, info.textured, asset)
+        ]
 
     return out
 
@@ -115,8 +134,13 @@ def _check_shape(root: Node, asset: AssetType) -> list[Finding]:
     if asset.key == "costume_part":
         extent = max(high[i] - low[i] for i in range(3))
         if not 0.5 <= extent <= 2.0:
-            out.append(Finding("info", f"largest side is {extent:.3f}; vanilla parts are normalised to 1.0 "
-                                       f"(the exporter can normalise and report modelScale {extent:.4f})"))
+            out.append(
+                Finding(
+                    "info",
+                    f"largest side is {extent:.3f}; vanilla parts are normalised to 1.0 "
+                    f"(the exporter can normalise and report modelScale {extent:.4f})",
+                )
+            )
 
     return out
 

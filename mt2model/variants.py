@@ -48,8 +48,13 @@ def variant_for_model(data: GameData, model_rel: str) -> str | None:
     return None
 
 
-def derive_variant(source_text: bytes | str, name: str, model_rel: str, pads: list[Pad] | None = None,
-                   label: str = "mmoBuildingVariant") -> str:
+def derive_variant(
+    source_text: bytes | str,
+    name: str,
+    model_rel: str,
+    pads: list[Pad] | None = None,
+    label: str = "mmoBuildingVariant",
+) -> str:
     parsed = records.parse(source_text)
     variant = next((r for r in parsed if r.label == label), None)
     if variant is None:
@@ -77,9 +82,12 @@ def read_creature(variant_text: bytes | str) -> Creature | None:
     offset = variant.child("actorOffset")
     rotation = variant.child("actorRotation")
 
-    return Creature(variant.prop("actor"), variant.prop("actorAnimation") or "idle",
-                    tuple(offset.floats()[:3]) if offset and len(offset.floats()) >= 3 else None,
-                    tuple(rotation.floats()[:4]) if rotation and len(rotation.floats()) >= 4 else None)
+    return Creature(
+        variant.prop("actor"),
+        variant.prop("actorAnimation") or "idle",
+        tuple(offset.floats()[:3]) if offset and len(offset.floats()) >= 3 else None,
+        tuple(rotation.floats()[:4]) if rotation and len(rotation.floats()) >= 4 else None,
+    )
 
 
 def set_creature(variant_text: bytes | str, creature: Creature) -> str:

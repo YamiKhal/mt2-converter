@@ -1,9 +1,22 @@
 from dataclasses import dataclass, field
 
 from . import records
-from .costume import Color
+from .colors import Color
 
 Vector = tuple[float, float, float]
+
+GREY_PALETTE: list[Color] = [(g, g, g, 1.0) for g in (0.9, 0.75, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1)]
+
+
+def read_defaults(text: bytes | str) -> list[Color]:
+    defaults = next((r for r in records.parse(text) if r.label == "mmoCostumeDefaults"), None)
+    colors = defaults.child("colors") if defaults else None
+    if colors is None:
+        return list(GREY_PALETTE)
+    palette = [tuple(c.floats()[:4]) for c in colors.children if len(c.floats()) >= 3]
+    palette = [p + (1.0,) * (4 - len(p)) for p in palette]
+
+    return (palette + GREY_PALETTE)[:8]
 
 
 @dataclass
@@ -27,19 +40,26 @@ def read_costume(text: bytes | str) -> CostumeFile:
     parsed = CostumeFile(costume.prop("name") or "", costume.prop("actorName") or "humanoid")
     for descriptor in _descriptors(costume):
         offset = descriptor.child("boneOffset")
-        parsed.parts.append(PartPlacement(
-            bone=descriptor.prop("boneName") or "",
-            model_file=descriptor.prop("modelFilename"),
-            model_scale=float(descriptor.prop("modelScale") or 1.0),
-            offset=_vector(offset, "translation", (0.0, 0.0, 0.0)),
-            offset_scale=_vector(offset, "scale", (1.0, 1.0, 1.0)),
-        ))
+        parsed.parts.append(
+            PartPlacement(
+                bone=descriptor.prop("boneName") or "",
+                model_file=descriptor.prop("modelFilename"),
+                model_scale=float(descriptor.prop("modelScale") or 1.0),
+                offset=_vector(offset, "translation", (0.0, 0.0, 0.0)),
+                offset_scale=_vector(offset, "scale", (1.0, 1.0, 1.0)),
+            )
+        )
 
     return parsed
 
 
-def write_costume(template: bytes | str, name: str, parts: list[PartPlacement], actor: str | None = None,
-                  renames: dict[str, str] | None = None) -> str:
+def write_costume(
+    template: bytes | str,
+    name: str,
+    parts: list[PartPlacement],
+    actor: str | None = None,
+    renames: dict[str, str] | None = None,
+) -> str:
     parsed = records.parse(template)
     costume = _costume_record(parsed)
     costume.set_prop("name", name)
@@ -83,16 +103,20 @@ def _place(descriptor: records.Record, part: PartPlacement):
     placement = [
         records.leaf("modelFilename", part.model_file, semicolon=False),
         records.leaf("modelScale", part.model_scale, quoted=False),
-        records.block("boneOffset",
-                      records.Record("translation", records.vector_line(part.offset).tokens, line_open=False),
-                      records.Record("scale", records.vector_line(part.offset_scale).tokens, line_open=False)),
+        records.block(
+            "boneOffset",
+            records.Record("translation", records.vector_line(part.offset).tokens, line_open=False),
+            records.Record("scale", records.vector_line(part.offset_scale).tokens, line_open=False),
+        ),
     ]
     descriptor.children = bone + placement + rest
 
 
 def write_defaults(palette: list[Color]) -> str:
-    lines = [records.Record(None, [records.Token("text", ",".join(f"{c:.6f}" for c in color))], line_open=False)
-             for color in palette[:8]]
+    lines = [
+        records.Record(None, [records.Token("text", ",".join(f"{c:.6f}" for c in color))], line_open=False)
+        for color in palette[:8]
+    ]
 
     return records.render([records.block("mmoCostumeDefaults", records.block("colors", *lines))])
 

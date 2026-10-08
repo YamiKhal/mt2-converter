@@ -5,12 +5,17 @@ import struct
 from pathlib import Path
 
 from .colors import linear_to_srgb
-from .model import Fragment, Node
+from .model import Fragment, Node, pack_triangles
 
-MAX_VERTICES = 65535
 COMPONENTS = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT4": 16}
-FORMATS = {5120: ("b", 127.0), 5121: ("B", 255.0), 5122: ("h", 32767.0), 5123: ("H", 65535.0),
-           5125: ("I", 1.0), 5126: ("f", 1.0)}
+FORMATS = {
+    5120: ("b", 127.0),
+    5121: ("B", 255.0),
+    5122: ("h", 32767.0),
+    5123: ("H", 65535.0),
+    5125: ("I", 1.0),
+    5126: ("f", 1.0),
+}
 IDENTITY = [1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0]
 
 Vector = tuple[float, float, float]
@@ -60,7 +65,7 @@ def _read_glb(raw: bytes) -> tuple[dict, bytes]:
     doc, binary, offset = {}, b"", 12
     while offset < len(raw):
         length, kind = struct.unpack_from("<II", raw, offset)
-        chunk = raw[offset + 8:offset + 8 + length]
+        chunk = raw[offset + 8 : offset + 8 + length]
         if kind == 0x4E4F534A:
             doc = json.loads(chunk.decode("utf-8"))
         elif kind == 0x004E4942:
@@ -99,12 +104,36 @@ def _local(node: dict) -> list[float]:
     tx, ty, tz = node.get("translation", (0.0, 0.0, 0.0))
     qx, qy, qz, qw = node.get("rotation", (0.0, 0.0, 0.0, 1.0))
     sx, sy, sz = node.get("scale", (1.0, 1.0, 1.0))
-    r = [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy + qz * qw), 2 * (qx * qz - qy * qw),
-         2 * (qx * qy - qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz + qx * qw),
-         2 * (qx * qz + qy * qw), 2 * (qy * qz - qx * qw), 1 - 2 * (qx * qx + qy * qy)]
+    r = [
+        1 - 2 * (qy * qy + qz * qz),
+        2 * (qx * qy + qz * qw),
+        2 * (qx * qz - qy * qw),
+        2 * (qx * qy - qz * qw),
+        1 - 2 * (qx * qx + qz * qz),
+        2 * (qy * qz + qx * qw),
+        2 * (qx * qz + qy * qw),
+        2 * (qy * qz - qx * qw),
+        1 - 2 * (qx * qx + qy * qy),
+    ]
 
-    return [r[0] * sx, r[1] * sx, r[2] * sx, 0.0, r[3] * sy, r[4] * sy, r[5] * sy, 0.0,
-            r[6] * sz, r[7] * sz, r[8] * sz, 0.0, tx, ty, tz, 1.0]
+    return [
+        r[0] * sx,
+        r[1] * sx,
+        r[2] * sx,
+        0.0,
+        r[3] * sy,
+        r[4] * sy,
+        r[5] * sy,
+        0.0,
+        r[6] * sz,
+        r[7] * sz,
+        r[8] * sz,
+        0.0,
+        tx,
+        ty,
+        tz,
+        1.0,
+    ]
 
 
 def _multiply(a: list[float], b: list[float]) -> list[float]:
@@ -118,12 +147,18 @@ def _apply(m: list[float], p, w: float) -> Vector:
 def _primitive(gltf: GltfFile, primitive: dict, world: list[float]) -> list[tuple]:
     attributes = primitive["attributes"]
     positions = [_to_game(_apply(world, p, 1.0)) for p in gltf.accessor(attributes["POSITION"])]
-    normals = [_to_game(_normalized(_apply(world, n, 0.0))) for n in gltf.accessor(attributes["NORMAL"])] \
-        if "NORMAL" in attributes else None
+    normals = (
+        [_to_game(_normalized(_apply(world, n, 0.0))) for n in gltf.accessor(attributes["NORMAL"])]
+        if "NORMAL" in attributes
+        else None
+    )
     colors = gltf.accessor(attributes["COLOR_0"]) if "COLOR_0" in attributes else None
     base = _base_color(gltf, primitive.get("material"))
-    indices = [int(i[0]) for i in gltf.accessor(primitive["indices"])] if "indices" in primitive \
+    indices = (
+        [int(i[0]) for i in gltf.accessor(primitive["indices"])]
+        if "indices" in primitive
         else list(range(len(positions)))
+    )
     triangles = []
     for k in range(0, len(indices) - 2, 3):
         a, b, c = indices[k], indices[k + 2], indices[k + 1]
@@ -184,17 +219,6 @@ def _ground(triangles: list, height: float | None) -> list:
 
 
 def _fragments(triangles: list) -> list[Fragment]:
-    fragments, fragment, index_of = [], Fragment("Material_tint", "PCN"), {}
-    for triangle in triangles:
-        vertices = [tuple(round(x, 6) for x in v) for v in triangle]
-        if len(fragment.vertices) + sum(v not in index_of for v in vertices) > MAX_VERTICES:
-            fragments.append(fragment)
-            fragment, index_of = Fragment("Material_tint", "PCN"), {}
-        for v in vertices:
-            if v not in index_of:
-                index_of[v] = len(fragment.vertices)
-                fragment.vertices.append(v)
-            fragment.indices.append(index_of[v])
-    fragments.append(fragment)
+    rounded = [[tuple(round(x, 6) for x in v) for v in triangle] for triangle in triangles]
 
-    return fragments
+    return pack_triangles("Material_tint", "PCN", rounded)

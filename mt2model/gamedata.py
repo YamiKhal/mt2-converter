@@ -66,7 +66,7 @@ class GameData:
         raise FileNotFoundError(rel)
 
     def materials(self) -> set[str]:
-        return {n[len("materials/"):-len(".mat")] for n in self.files("materials/", ".mat") if n.count("/") == 1}
+        return {n[len("materials/") : -len(".mat")] for n in self.files("materials/", ".mat") if n.count("/") == 1}
 
     def is_vanilla(self, rel: str) -> bool:
         return self.sources[-1].exists(rel)
