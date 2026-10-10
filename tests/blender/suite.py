@@ -1172,9 +1172,14 @@ class NewModels(unittest.TestCase):
                 self.assertAlmostEqual(a[0], b[0], places=3)
                 self.assertAlmostEqual(a[1], b[1], places=3)
         self.assertEqual(run(bpy.ops.mt2.new_theme, family="bridge", source="rope", name="moat"), {"FINISHED"})
-        own = PROJECT / "bridge_themes/test_models_moat/ramp_test_models_moat.vmb"
-        bpy.ops.mt2.import_file(filepath=str(own))
+        self.assertEqual(bpy.context.scene.mt2.open_theme, "bridge_themes/test_models_moat")
+        own = "bridge_themes/test_models_moat/ramp_test_models_moat.vmb"
+        self.assertEqual(bpy.ops.mt2.import_theme_piece(rel=own), {"FINISHED"})
         moat = bpy.context.view_layer.objects.active
+        self.assertTrue(module("objects.themes").from_theme_file(moat))
+        count = len(bpy.data.objects)
+        self.assertEqual(bpy.ops.mt2.import_theme_piece(rel=own), {"FINISHED"})
+        self.assertEqual(len(bpy.data.objects), count)
         bpy.data.objects.remove(module("objects.bridges").ramp_path_object(moat))
         self.assertEqual(bpy.ops.mt2.add_ramp_path(), {"FINISHED"})
         select_only(moat)
@@ -1182,6 +1187,10 @@ class NewModels(unittest.TestCase):
         text = (PROJECT / "bridge_themes/test_models_moat.vrt").read_text()
         self.assertNotIn("__replace", text)
         self.assertAlmostEqual(bridges.read_bridge(text).height, 5.0, places=3)
+        self.assertEqual(bpy.ops.mt2.delete_theme(key="bridge_themes/test_models_moat"), {"FINISHED"})
+        self.assertFalse((PROJECT / "bridge_themes/test_models_moat").exists())
+        self.assertFalse((PROJECT / "bridge_themes/test_models_moat.vrt").exists())
+        self.assertEqual(bpy.context.scene.mt2.open_theme, "")
 
     def test_play_door(self):
         door = import_game("gizmo/door/base1.vmb")
@@ -1343,7 +1352,7 @@ class FakeLayout:
     def _child(self, *args, **kwargs):
         return FakeLayout(self.case, self.log)
 
-    row = column = box = grid_flow = _child
+    row = column = box = grid_flow = split = _child
 
     def separator(self, *args, **kwargs):
         pass
@@ -1372,6 +1381,11 @@ class FakeLayout:
         self.log.append(("operator", idname))
 
         return type("Properties", (), {})()
+
+    def operator_menu_enum(self, idname, name, **kwargs):
+        category, operator = idname.split(".")
+        self.case.assertTrue(hasattr(getattr(bpy.ops, category), operator), f"missing operator {idname}")
+        self.log.append(("operator_menu_enum", idname))
 
 
 class UI(unittest.TestCase):
@@ -1444,6 +1458,8 @@ class UI(unittest.TestCase):
                 cube.mt2.asset = asset
                 log = self.draw_all()
                 self.assertIn(("operator", "mt2.export"), log)
+                if asset in ("modular", "wall", "bridge", "dungeon_tile"):
+                    self.assertIn(("operator_menu_enum", "mt2.pick_theme"), log)
 
 
 def main():

@@ -8,13 +8,16 @@ from .conversion.to_game import asset_root
 from .export import pipeline
 from .export.gizmos import edits_game_gizmo, is_game_gizmo
 from .mt2model.naming import mod_id_problem, target_problems
+from .mt2model.themes import ASSET_FAMILIES, FAMILIES
 from .objects.animation import REST_POSE, owned_actions
 from .objects.bridges import is_bridge_span, is_ramp, ramp_path_object
 from .objects.costumes import costume_root, is_loose_part
 from .objects.creature_spot import is_flight_point
 from .objects.door_preview import door_preview_action, is_door
 from .objects.rigs import game_rigs, rig_name
+from .objects.themes import from_theme_file, theme_field, themes_in_mod
 from .operators.materials import is_costume_mesh
+from .operators.theme import pieces_in_scene
 
 LEVEL_ICONS = {"error": "ERROR", "warning": "INFO", "info": "CHECKMARK"}
 CHARACTER_WIDTH = 7.5
@@ -26,15 +29,16 @@ ASSET_FIELDS = {
     "building": ("building_dir", "display_name"),
     "vehicle": ("vehicle_kind", "display_name", "description", "standalone"),
     "gizmo": ("gizmo_dir",),
-    "modular": ("theme", "slot"),
-    "wall": ("theme", "wall_piece"),
-    "bridge": ("theme", "bridge_piece"),
-    "dungeon_tile": ("dungeon_theme", "tile_kind", "shape"),
+    "modular": ("slot",),
+    "wall": ("wall_piece",),
+    "bridge": ("bridge_piece",),
+    "dungeon_tile": ("tile_kind", "shape"),
     "costume": ("display_name", "rig", "creature_type"),
     "costume_part": ("costume_set", "bone", "normalise"),
     "raw": ("raw_path",),
 }
 NAMELESS = ("raw", "costume_part", "dungeon_tile", "wall", "bridge")
+FIXED_BY_THEME_FILE = ("wall_piece", "bridge_piece", "tile_kind", "shape")
 ANIMATED = ("gizmo", "costume")
 LIGHT_ASSETS = ("scenery", "tagged")
 PAD_ASSETS = ("building", "vehicle", "gizmo")
@@ -97,6 +101,8 @@ class MT2_PT_asset(_Panel):
         layout.prop(s, "asset")
         if s.asset not in NAMELESS and not edits_game_gizmo(root):
             layout.prop(s, "name")
+        if s.asset in ASSET_FAMILIES and not from_theme_file(root):
+            _draw_theme_picker(layout, root)
         for field in _fields(root):
             layout.prop(s, field)
         problems = target_problems(pipeline.target_for(root))
@@ -111,9 +117,19 @@ class MT2_PT_asset(_Panel):
         _draw_findings(layout, context, root)
 
 
+def _draw_theme_picker(layout, root):
+    split = layout.split(factor=0.4)
+    split.alignment = "RIGHT"
+    split.label(text="Theme")
+    theme = getattr(root.mt2, theme_field(root.mt2.asset))
+    split.operator_menu_enum("mt2.pick_theme", "theme", text=theme or "Pick a theme", icon="ASSET_MANAGER")
+
+
 def _fields(root) -> list[str]:
     s = root.mt2
     fields = list(ASSET_FIELDS.get(s.asset, ()))
+    if from_theme_file(root):
+        fields = [f for f in fields if f not in FIXED_BY_THEME_FILE]
     if s.asset == "costume_part" and costume_root(root.parent) is not None:
         fields = ["normalise"]
     if s.asset == "weapon" and not _is_vanilla_category(s.weapon_category):
@@ -128,6 +144,41 @@ def _fields(root) -> list[str]:
         fields = ["edit_game", "standalone"] if s.edit_game else fields + ["edit_game"]
 
     return fields
+
+
+class MT2_PT_themes(_Panel):
+    bl_label = "Themes"
+
+    @classmethod
+    def poll(cls, context):
+        return bool(themes_in_mod(game.game_data()))
+
+    def draw(self, context):
+        layout = self.layout
+        settings = context.scene.mt2
+        mod_id = settings.mod_id
+        active = asset_root(context.active_object)
+        in_scene = pieces_in_scene(context.scene)
+        for theme in themes_in_mod(game.game_data()):
+            is_open = settings.open_theme == theme.key
+            icon = "DISCLOSURE_TRI_DOWN" if is_open else "DISCLOSURE_TRI_RIGHT"
+            text = f"{_theme_label(mod_id, theme)} {FAMILIES[theme.family].label.lower()}"
+            layout.operator("mt2.open_theme", text=text, icon=icon, emboss=False).key = theme.key
+            if not is_open:
+                continue
+            column = layout.box().column(align=True)
+            for piece in theme.pieces:
+                obj = in_scene.get(piece.rel)
+                icon = "RESTRICT_SELECT_OFF" if obj is not None else "IMPORT"
+                selected = obj is not None and obj == active
+                column.operator("mt2.import_theme_piece", text=piece.label, icon=icon, depress=selected).rel = piece.rel
+
+
+def _theme_label(mod_id: str, theme) -> str:
+    prefix = mod_id if theme.family == "dungeon" else f"{mod_id}_"
+    short = theme.name.removeprefix(prefix) if mod_id else theme.name
+
+    return (short or theme.name).replace("_", " ").capitalize()
 
 
 def _keeps_game_rig(costume) -> bool:
@@ -401,6 +452,7 @@ class MT2_PT_weapon_packs(_Panel):
 CLASSES = (
     MT2_PT_import,
     MT2_PT_asset,
+    MT2_PT_themes,
     MT2_PT_costume_colors,
     MT2_PT_animation,
     MT2_PT_paint,

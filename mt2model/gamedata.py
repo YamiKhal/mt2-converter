@@ -39,6 +39,7 @@ class GameData:
     def __init__(self, sources: list):
         self.sources = sources
         self._names: list[str] | None = None
+        self._overlay_names: list[str] | None = None
 
     @classmethod
     def open(cls, game: str | Path, overlays: list[str | Path] = ()) -> "GameData":
@@ -50,8 +51,15 @@ class GameData:
 
         return self._names
 
+    def overlay_names(self) -> list[str]:
+        if self._overlay_names is None:
+            self._overlay_names = sorted({n for s in self.sources[:-1] for n in s.names()})
+
+        return self._overlay_names
+
     def rescan(self):
         self._names = None
+        self._overlay_names = None
 
     def files(self, prefix: str = "", suffix: str = "") -> list[str]:
         return [n for n in self.names() if n.startswith(prefix) and n.lower().endswith(suffix)]

@@ -19,7 +19,7 @@ from mt2model.rigs import (
     mod_animations,
     rename_nodes,
 )
-from mt2model.themes import theme_props
+from mt2model.themes import mod_themes, theme_files, theme_props
 from mt2model.variants import Creature, read_creature, set_creature
 from mt2model.vehicle_tool import offer_vehicle, offered_vehicles, vehicle_tool_file
 
@@ -67,6 +67,47 @@ class VehicleToolTests(unittest.TestCase):
         self.assertEqual(
             offered_vehicles(vehicle_tool_file(game, own, "m_blimp", standalone=False)), ["m_raft", "m_blimp"]
         )
+
+
+class ModThemeTests(unittest.TestCase):
+    def test_pieces_are_grouped_by_theme(self):
+        themes = mod_themes(
+            [
+                "wall_themes/m_viking/wall_m_viking.vmb",
+                "wall_themes/m_viking/turret_m_viking.vmb",
+                "bridge_themes/m_moat.vrt",
+                "bridge_themes/m_moat/ramp_m_moat.vmb",
+                "building_themes/m_town/theme.conf",
+                "building_themes/m_town/sides/b_w_m_town_blank.vmb",
+                "dungeon/themes/mcrypt/walls/NW_E/d_mcrypt_NW_E.vmb",
+                "dungeon/themes/mcrypt/diorama_mcrypt.vmb",
+                "scenery/tagged/f_prop_mcrypt_pot.vmb",
+            ]
+        )
+        found = {t.key: [p.label for p in t.pieces] for t in themes}
+        self.assertEqual(
+            found,
+            {
+                "bridge_themes/m_moat": ["Ramp"],
+                "building_themes/m_town": ["Sides: blank"],
+                "dungeon/themes/mcrypt": ["Diorama", "Wall NW E"],
+                "wall_themes/m_viking": ["Turret", "Wall"],
+            },
+        )
+
+
+    def test_theme_files_include_its_variant_and_props(self):
+        files = [
+            "bridge_themes/m_moat.vrt",
+            "bridge_themes/m_moat/ramp_m_moat.vmb",
+            "bridge_themes/m_moat2/ramp_m_moat2.vmb",
+            "dungeon/themes/mcrypt/diorama_mcrypt.vmb",
+            "scenery/tagged/f_prop_mcrypt.vmb",
+            "scenery/tagged/f_prop_mcrypt_pot_obs.vrt",
+            "scenery/tagged/f_prop_mcrypts_pot.vmb",
+        ]
+        self.assertEqual(theme_files(files, "bridge", "m_moat"), files[:2])
+        self.assertEqual(theme_files(files, "dungeon", "mcrypt"), files[3:6])
 
 
 class DungeonThemeTests(unittest.TestCase):

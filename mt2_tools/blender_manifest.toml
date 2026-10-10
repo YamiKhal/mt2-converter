@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "mt2_tools"
-version = "0.6.1"
+version = "0.6.2"
 name = "MT2 Tools"
 tagline = "Import, edit and export MMORPG Tycoon 2 models"
 maintainer = "Yamikhal"

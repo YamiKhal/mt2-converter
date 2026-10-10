@@ -236,6 +236,7 @@ class MT2_SceneSettings(bpy.types.PropertyGroup):
         description="Listed as an exotic art pack",
         update=_art_pack_changed,
     )
+    open_theme: bpy.props.StringProperty(name="Open theme", description="The theme whose pieces Themes lists")
     findings: bpy.props.CollectionProperty(type=MT2_Finding)
     findings_root: bpy.props.PointerProperty(type=bpy.types.Object, description="The asset the findings belong to")
 

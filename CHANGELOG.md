@@ -2,6 +2,12 @@
 
 Each `## MT2 Tools Patch - <version>` section becomes that version's GitHub release notes (`python scripts/release.py`), and MT2 Tools shows them when it offers the update.
 
+## MT2 Tools Patch - 0.6.2
+### New
+- **Themes panel**: once your mod has a theme, a **Themes** panel shows up under Asset. It lists every theme in the mod with its pieces; click a piece to import it, or to jump to it if it's already in the scene. No more hunting through folders with Import ▸ File after **New theme**. Right-click a theme to delete it.
+- The **Theme** text box is gone. Pieces picked from Themes already know their theme, and a model made from scratch picks one from a list, so a typo can't split a wall and its turret into two folders anymore.
+- **Import from game**: Shift-click a result to import it and keep the search open, so you can grab several models in a row.
+
 ## MT2 Tools Patch - 0.6.1
 ### Fixed
 - Fixed an issue where a vehicle with no pads could be exported and crash the game when placed. Export now stops and tells you to add a pad with an entrance.

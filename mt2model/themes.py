@@ -28,6 +28,75 @@ FAMILIES = {
 }
 
 
+ASSET_FAMILIES = {"modular": "building", "wall": "wall", "bridge": "bridge", "dungeon_tile": "dungeon"}
+TILE_LABELS = {"walls": "Wall", "ceilings": "Ceiling"}
+
+
+@dataclass(frozen=True)
+class ThemePiece:
+    rel: str
+    label: str
+
+
+@dataclass(frozen=True)
+class ModTheme:
+    family: str
+    name: str
+    pieces: tuple[ThemePiece, ...]
+
+    @property
+    def key(self) -> str:
+        return f"{FAMILIES[self.family].folder}/{self.name}"
+
+
+def mod_themes(files: list[str]) -> list[ModTheme]:
+    found: dict[tuple[str, str], list[ThemePiece]] = {}
+    for rel in files:
+        owner = theme_of(rel)
+        if owner is not None and rel.lower().endswith(".vmb"):
+            found.setdefault(owner, []).append(ThemePiece(rel, piece_label(*owner, rel)))
+    themes = [
+        ModTheme(family, name, tuple(sorted(pieces, key=lambda p: p.label))) for (family, name), pieces in found.items()
+    ]
+
+    return sorted(themes, key=lambda t: (t.name, t.family))
+
+
+def theme_of(rel: str) -> tuple[str, str] | None:
+    for family in FAMILIES.values():
+        prefix = family.folder + "/"
+        if rel.startswith(prefix) and "/" in rel[len(prefix) :]:
+            return family.key, rel[len(prefix) :].split("/", 1)[0]
+
+    return None
+
+
+def piece_label(family: str, name: str, rel: str) -> str:
+    parts = rel[len(f"{FAMILIES[family].folder}/{name}/") : -len(".vmb")].split("/")
+    stem = parts[-1]
+    if family in ("wall", "bridge"):
+        return stem.split("_", 1)[0].capitalize()
+    if family == "dungeon":
+        if len(parts) == 3 and parts[0] in TILE_LABELS:
+            return f"{TILE_LABELS[parts[0]]} {parts[1].replace('_', ' ')}"
+        return stem.replace(f"_{name}", "").replace("_", " ").capitalize()
+    piece = re.sub(r"^b_[a-z]_", "", stem.replace(f"_{name}", "", 1))
+    if len(parts) == 1:
+        return piece
+
+    return f"{parts[0].replace('_', ' ').capitalize()}: {piece}"
+
+
+def theme_files(files: list[str], family: str, name: str) -> list[str]:
+    folder = FAMILIES[family].folder
+    owned = [rel for rel in files if rel.startswith(f"{folder}/{name}/") or rel == f"{folder}/{name}.vrt"]
+    if family == "dungeon":
+        props = [rel for rel in files if rel.startswith(PROP_FOLDER)]
+        owned += [rel for rel in props if name in rel[len(PROP_FOLDER) :].rsplit(".", 1)[0].split("_")]
+
+    return owned
+
+
 def theme_names(data: GameData, family: str) -> list[str]:
     folder = FAMILIES[family].folder + "/"
     names = {rel[len(folder) :].split("/", 1)[0] for rel in data.files(folder) if rel.count("/") > folder.count("/")}

@@ -126,9 +126,9 @@ def target_problems(t: ExportTarget) -> list[str]:
     if t.asset == "costume_part" and not _WORD.match(t.costume_set or ""):
         problems.append("costume set must be a folder name of a-z, 0-9 and _")
     if t.asset == "dungeon_tile" and not _WORD.match(t.dungeon_theme or ""):
-        problems.append("dungeon theme must be a folder name of a-z, 0-9 and _")
+        problems.append("pick a theme, or make one with New theme")
     if t.asset in ("modular", "wall", "bridge") and not _WORD.match(t.theme or ""):
-        problems.append("theme must be a folder name of a-z, 0-9 and _")
+        problems.append("pick a theme, or make one with New theme")
     if t.asset == "modular" and t.slot not in MODULAR_SLOTS:
         problems.append(f"'{t.slot}' is not a modular piece slot")
     if t.asset == "wall" and t.wall_piece not in ("wall", "turret"):

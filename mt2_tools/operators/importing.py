@@ -52,6 +52,7 @@ REFERENCES = (
 )
 
 _game_items: list = []
+_search_spot: list[int] = []
 
 
 def game_relative(path: str) -> str:
@@ -214,13 +215,19 @@ def _game_models(self, context):
 class MT2_OT_import_game(bpy.types.Operator):
     bl_idname = "mt2.import_game"
     bl_label = "Import from game"
-    bl_description = "Search the game's models and import one; the game files are only read"
+    bl_description = (
+        "Search the game's models and import one; the game files are only read. "
+        "Shift-click a result to keep the search open and import more"
+    )
     bl_options = {"REGISTER", "UNDO"}
     bl_property = "model"
 
     model: bpy.props.EnumProperty(name="Model", items=_game_models)
+    again: bpy.props.BoolProperty(options={"HIDDEN", "SKIP_SAVE"})
 
     def invoke(self, context, event):
+        if not self.again:
+            _search_spot[:] = [event.mouse_x, event.mouse_y]
         context.window_manager.invoke_search_popup(self)
 
         return {"RUNNING_MODAL"}
@@ -231,8 +238,33 @@ class MT2_OT_import_game(bpy.types.Operator):
             self.report({"ERROR"}, "Set the game folder in the add-on preferences first")
             return {"CANCELLED"}
         select_only(context, import_bytes(context, data.read(self.model), self.model))
+        if context.window is not None:
+            bpy.ops.mt2.keep_searching("INVOKE_DEFAULT")
 
         return {"FINISHED"}
+
+
+# The search popup always closes and execute gets no event, so a follow-up invoke reads whether Shift is still held.
+class MT2_OT_keep_searching(bpy.types.Operator):
+    bl_idname = "mt2.keep_searching"
+    bl_label = "Keep searching"
+    bl_options = {"INTERNAL"}
+
+    def invoke(self, context, event):
+        if event.shift:
+            where = {"window": context.window, "area": context.area, "region": context.region}
+            bpy.app.timers.register(lambda: _search_again(where), first_interval=0.0)
+
+        return {"FINISHED"}
+
+
+# The popup opens at the mouse, which is on a result further down by now, so it goes back to where the search opened.
+def _search_again(where: dict):
+    window = where["window"]
+    if window is not None and _search_spot:
+        window.cursor_warp(*_search_spot)
+    with bpy.context.temp_override(**{k: v for k, v in where.items() if v is not None}):
+        bpy.ops.mt2.import_game("INVOKE_DEFAULT", again=True)
 
 
 class MT2_OT_add_reference(bpy.types.Operator):
@@ -307,4 +339,10 @@ class MT2_OT_import_costume(bpy.types.Operator):
         return {"FINISHED"}
 
 
-CLASSES = (MT2_OT_import_file, MT2_OT_import_game, MT2_OT_import_costume, MT2_OT_add_reference)
+CLASSES = (
+    MT2_OT_import_file,
+    MT2_OT_import_game,
+    MT2_OT_keep_searching,
+    MT2_OT_import_costume,
+    MT2_OT_add_reference,
+)
