@@ -95,7 +95,6 @@ class ModThemeTests(unittest.TestCase):
             },
         )
 
-
     def test_theme_files_include_its_variant_and_props(self):
         files = [
             "bridge_themes/m_moat.vrt",
